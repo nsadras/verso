@@ -131,6 +131,7 @@ a { color: var(--accent); }
   background: transparent;
   color: var(--muted);
 }
+.diary-more-up { top: 8px; bottom: auto; }
 .diary-more:hover:not(:disabled), .diary-more:focus-visible { background: transparent; color: var(--diary-ink); }
 .diary-more:focus-visible { outline-offset: -3px; }
 .diary-page { --page-padding: 32px; padding: var(--page-padding); font-family: Georgia, "Times New Roman", serif; font-size: 17px; line-height: 1.85; }

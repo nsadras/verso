@@ -32,23 +32,28 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
   const exchange = useRef<HTMLDivElement>(null)
   const editor = useRef<HTMLTextAreaElement>(null)
   const follow = useRef(true)
+  const lastScrollTop = useRef(0)
   const previousPage = useRef(page)
   const wasRunning = useRef(false)
   const transition = useRef<{ animations: Animation[]; scrollTop: number } | null>(null)
+  const [moreAbove, setMoreAbove] = useState(false)
   const [moreBelow, setMoreBelow] = useState(false)
 
   function updateScrollHint() {
     const scroll = surface.current
+    setMoreAbove(!!scroll?.clientHeight && !transition.current && scroll.scrollTop > 8)
     setMoreBelow(!!scroll?.clientHeight && !transition.current &&
       scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 8)
   }
 
-  function scrollDown() {
+  function scrollPage(direction: -1 | 1) {
     const scroll = surface.current
     if (!scroll) return
+    if (direction === -1) follow.current = false
+    lastScrollTop.current = scroll.scrollTop
     scroll.focus({ preventScroll: true })
     scroll.scrollBy({
-      top: scroll.clientHeight * 0.8,
+      top: scroll.clientHeight * 0.8 * direction,
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
     })
   }
@@ -62,6 +67,7 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
       surface.current.style.overflowY = ''
       surface.current.removeAttribute('data-advancing')
       surface.current.scrollTop = restoreScroll ? active.scrollTop : 0
+      lastScrollTop.current = surface.current.scrollTop
     }
     transition.current = null
   }
@@ -108,6 +114,7 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
       pageElement.style.paddingTop = pageStyle.paddingTop
       scroll.style.overflowY = 'hidden'
       scroll.setAttribute('data-advancing', 'true')
+      setMoreAbove(false)
       setMoreBelow(false)
       const movement = pageElement.animate(
         [{ transform: 'translateY(0)', opacity: 1 }, { transform: `translateY(${-distance}px)`, opacity: fromNotebook ? 0 : 1 }],
@@ -163,11 +170,13 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
     if (page !== previousPage.current) {
       finishTransition()
       surface.current.scrollTop = 0
+      lastScrollTop.current = 0
       paper.current?.style.setProperty('--surface-height', `${surface.current.clientHeight}px`)
       follow.current = true
       previousPage.current = page
     } else if (running && follow.current && !transition.current) {
       surface.current.scrollTop = surface.current.scrollHeight
+      lastScrollTop.current = surface.current.scrollTop
     }
     updateScrollHint()
   }, [answer, page, running])
@@ -184,7 +193,12 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
       role="region" aria-label="Conversation page" tabIndex={0} onScroll={event => {
       if (transition.current) return
       const element = event.currentTarget
-      follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+      // Resume following only when the reader scrolls back down near the end.
+      // Smooth upward movement starts near the bottom too, but must stay put.
+      if (element.scrollTop < lastScrollTop.current ||
+        element.scrollHeight - element.scrollTop - element.clientHeight >= 80) follow.current = false
+      else if (element.scrollTop > lastScrollTop.current) follow.current = true
+      lastScrollTop.current = element.scrollTop
       updateScrollHint()
     }}>
       <div className={`diary-page${!question ? ' is-blank' : ''}`} ref={paper}>
@@ -223,7 +237,13 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
         {omitted > 0 && <p className="diary-feedback">{omitted} older {omitted === 1 ? 'exchange is' : 'exchanges are'} saved but outside the model’s current context.</p>}
       </div>
     </div>
-    {moreBelow && <button type="button" className="diary-more" onClick={scrollDown}
+    {moreAbove && <button type="button" className="diary-more diary-more-up" onClick={() => scrollPage(-1)}
+      aria-label="Scroll up" aria-controls="conversation-page" title="More above">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M8 13V3m-4 4 4-4 4 4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>}
+    {moreBelow && <button type="button" className="diary-more" onClick={() => scrollPage(1)}
       aria-label="Scroll down" aria-controls="conversation-page" title="More below">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path d="M8 3v10m-4-4 4 4 4-4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
