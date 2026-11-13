@@ -1,0 +1,14 @@
+{
+  "name": "Verso — Your thinking notebook",
+  "short_name": "Verso",
+  "description": "Think with AI. Keep what you understand.",
+  "theme_color": "#1d1d1d",
+  "background_color": "#1d1d1d",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/",
+  "icons": [
+    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

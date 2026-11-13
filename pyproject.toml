@@ -1,0 +1,24 @@
+[project]
+name = "verso"
+version = "0.1.0"
+description = "Local LLM conversations with a persistent, user-authored Markdown notebook"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "keyring>=25.7.0",
+    "litellm",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "httpx",
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
