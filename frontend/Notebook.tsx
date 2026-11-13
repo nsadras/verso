@@ -1,13 +1,22 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Markdown } from './Markdown'
-import { api, ApiError, downloadMarkdown, errorMessage, type NotebookData, type Topic } from './api'
+import { api, ApiError, downloadMarkdown, errorMessage, type NotebookAction, type NotebookData, type Topic } from './api'
+import { NotebookActions } from './NotebookActions'
 
 export type NotebookHandle = { flush: () => Promise<boolean> }
 
-export const Notebook = forwardRef<NotebookHandle, { topic: Topic; navigating: boolean }>(function Notebook({ topic, navigating }, ref) {
+type NotebookProps = {
+  topic: Topic
+  navigating: boolean
+  actionsDisabled: boolean
+  onAction: (text: string, action: NotebookAction) => void
+}
+
+export const Notebook = forwardRef<NotebookHandle, NotebookProps>(function Notebook({ topic, navigating, actionsDisabled, onAction }, ref) {
   const [text, setText] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [preview, setPreview] = useState(false)
+  const [hasSelection, setHasSelection] = useState(false)
   const [status, setStatus] = useState('Loading…')
   const [error, setError] = useState('')
   const [conflict, setConflict] = useState(false)
@@ -15,6 +24,8 @@ export const Notebook = forwardRef<NotebookHandle, { topic: Topic; navigating: b
   const ready = useRef(false), alive = useRef(true)
   const blocked = useRef(false)
   const inFlight = useRef<Promise<boolean> | null>(null)
+  const editor = useRef<HTMLTextAreaElement>(null), rendered = useRef<HTMLDivElement>(null)
+  const header = useRef<HTMLDivElement>(null)
 
   async function load() {
     try {
@@ -87,18 +98,13 @@ export const Notebook = forwardRef<NotebookHandle, { topic: Topic; navigating: b
 
   const words = text.trim() ? text.trim().split(/\s+/).length : 0
   return <section className="notebook panel" aria-label="Persistent notebook">
-    <div className="panel-heading">
-      <div className="notebook-summary">
-        <h2>Notebook</h2>
-        <div className="notebook-meta">
-          <span className={error ? 'save-error' : ''} role="status">{status === 'Saved on host' ? '✓ ' : ''}{status}</span>
-          <span>{words} {words === 1 ? 'word' : 'words'}</span>
-        </div>
-      </div>
-      <div className="button-group notebook-actions">
-        <button disabled={!loaded} onClick={() => setPreview(!preview)} aria-pressed={preview} title={preview ? 'Edit Markdown' : 'Preview Markdown'}>{preview ? 'Edit' : 'Preview'}</button>
-        <button disabled={!loaded} onClick={() => downloadMarkdown(topic.title, current.current)}>Export .md</button>
-      </div>
+    <div className="panel-heading notebook-heading" ref={header}>
+      <h2 className="notebook-summary">Notebook</h2>
+      <NotebookActions editor={editor} preview={rendered} header={header} text={text} previewing={preview}
+        disabled={!loaded || actionsDisabled} onAction={onAction} onSelectionChange={setHasSelection} />
+      <span className="notebook-action-divider" aria-hidden="true">|</span>
+      <button type="button" className="notebook-text-action" disabled={!loaded} aria-pressed={preview}
+        title={preview ? 'Edit Markdown' : 'Preview Markdown'} onClick={() => setPreview(!preview)}>{preview ? 'Edit' : 'Preview'}</button>
     </div>
     {error && <div className="notice error" role="alert">
       <p>{error}</p>
@@ -107,9 +113,16 @@ export const Notebook = forwardRef<NotebookHandle, { topic: Topic; navigating: b
         <button onClick={() => { if (window.confirm('Replace the editor with the saved notebook? Export your draft first if you want to keep it.')) void load() }}>Reload saved version</button>
       </> : <button onClick={() => { if (loaded) void flush(); else void load() }}>Retry {loaded ? 'save' : 'loading'}</button>}
     </div>}
-    {preview ? <div className="markdown notebook-preview"><Markdown>{text || '*Your notebook is empty.*'}</Markdown></div>
-      : <textarea className="notebook-editor" aria-label="Notebook" spellCheck disabled={!loaded || navigating}
+    {preview ? <div className="markdown notebook-preview" ref={rendered} tabIndex={-1}><Markdown>{text || '*Your notebook is empty.*'}</Markdown></div>
+      : <textarea className="notebook-editor" ref={editor} aria-label="Notebook" spellCheck disabled={!loaded || navigating}
           value={text} placeholder="Write your notes…"
           onChange={event => { current.current = event.target.value; setText(event.target.value); setStatus('Unsaved changes') }} />}
+    <footer className="notebook-status" aria-label="Notebook status">
+      <span className={error ? 'save-error' : ''} role="status">{status === 'Saved on host' ? '✓ ' : ''}{status}</span>
+      <span>{words} {words === 1 ? 'word' : 'words'}</span>
+      <span id="notebook-action-scope" className="notebook-action-scope" aria-live="polite">
+        {hasSelection ? 'selection' : 'notebook'}
+      </span>
+    </footer>
   </section>
 })

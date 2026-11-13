@@ -54,4 +54,22 @@ Validation: the production build, 28 Python checks, and 28 desktop/mobile browse
 
 ## Still outside the prototype
 
-Handwriting, automatic summaries, note review by the model, offline synchronization, alternate writing modes, and conversation retrieval remain experiments from the [PRD](prd.md). There is no agent framework, vector database, cloud storage service, or automatic AI notebook editing. The current aim is to learn from a small, usable writing experience before adding those systems.
+Handwriting, automatic summaries, offline synchronization, alternate writing modes, and conversation retrieval remain experiments from the [PRD](prd.md). There is no agent framework, vector database, cloud storage service, or automatic AI notebook editing. The current aim is to learn from a small, usable writing experience before adding those systems.
+
+## 2026-11-12 — Contextual notebook actions
+
+Selecting notebook text now offers Explore, Check, and Test Me in a small floating menu, in both Edit and Preview. Each action opens an exchange on the existing conversation page, preserves an unfinished chat draft, and leaves notes untouched. Test Me asks for one conceptual question, with feedback after the user's answer.
+
+The first stage uses the selected passage and recent conversation from the same topic. Action metadata persists with the turn, so refreshes restore its label and follow-ups retain the original request within the context budget. SQLite migrates existing databases by adding one nullable column. No editor framework, retrieval service, or new dependency was added. Automatic note-to-conversation associations and full-text recall are deferred to later stages.
+
+The floating menu felt intrusive during selection. The actions now stay in the notebook header as muted italic text, with Preview/Edit and Export using the same treatment. They act on a selected passage or, with nothing selected, the whole notebook. A small scope label makes that distinction visible. This also removes the selection-positioning code and keeps the writing surface clear.
+
+Preview/Edit and Export then moved into a three-dot menu so the header could return to its compact layout, with the contextual actions at the top right. Keyboard navigation through the header preserves the selected passage; Escape closes the menu first without changing that scope.
+
+The next refinement removes the menu and routine export control. Preview/Edit now sits inline after the three contextual actions, separated by a quiet vertical bar. Save status, word count, and action scope move into a tiny, borderless monospace footer. Draft export remains available only in save-conflict recovery.
+
+Notebook typography now uses the app's sans-serif family for writing, preview text, controls, and status information. The controls are upright and distinguished by their muted color; preview headings use a lighter, consistent weight. Editing and preview share the same body size and line spacing. The conversation retains its serif typography.
+
+## 2026-11-13 — Action names in the conversation
+
+Contextual exchanges now open with the action name in bold serif text, followed by the notebook passage as a lightly indented quotation. This replaces the small metadata-style label and makes the request easier to recognize. The formatting survives refreshes; ordinary follow-up messages retain the usual diary styling.

@@ -1,9 +1,12 @@
 export type Topic = { id: string; title: string; created_at: string; updated_at: string }
 export type NotebookData = { markdown: string; revision: number }
+export const NOTEBOOK_ACTIONS = { explore: 'Explore', check: 'Check', test_me: 'Test Me' } as const
+export type NotebookAction = keyof typeof NOTEBOOK_ACTIONS
 export type LatestTurn = {
   user_text: string
   assistant_text: string
   status: 'running' | 'complete' | 'cancelled' | 'failed' | 'interrupted'
+  action: NotebookAction | null
 }
 export type Settings = {
   mode: 'local' | 'cloud'
@@ -42,10 +45,10 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
   return response.status === 204 ? undefined as T : response.json()
 }
 
-export async function streamMessage(topic: string, content: string, signal: AbortSignal, onEvent: (event: StreamEvent) => void) {
+export async function streamMessage(topic: string, content: string, signal: AbortSignal, onEvent: (event: StreamEvent) => void, action?: NotebookAction) {
   const response = await checked(await fetch(`/api/topics/${topic}/messages`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }), signal,
+    body: JSON.stringify({ content, action }), signal,
   }))
   if (!response.body) throw new Error('Streaming is unavailable in this browser.')
   const reader = response.body.getReader()

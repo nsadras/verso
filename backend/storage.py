@@ -21,7 +21,7 @@ class Store:
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 1:
+            if version > 2:
                 raise RuntimeError("Database was created by a newer application.")
             if version == 0:
                 db.executescript("""
@@ -35,14 +35,19 @@ class Store:
                         id TEXT UNIQUE NOT NULL,
                         topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
                         user_text TEXT NOT NULL, assistant_text TEXT NOT NULL DEFAULT '',
+                        action TEXT CHECK(action IN ('explore','check','test_me')),
                         status TEXT NOT NULL CHECK(status IN
                             ('running','complete','cancelled','failed','interrupted')),
                         created_at TEXT NOT NULL
                     );
                     CREATE INDEX turns_topic ON turns(topic_id, sequence);
                     CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
-                    PRAGMA user_version=1;
+                    PRAGMA user_version=2;
                 """)
+            elif version == 1:
+                db.execute("BEGIN")
+                db.execute("ALTER TABLE turns ADD COLUMN action TEXT CHECK(action IN ('explore','check','test_me'))")
+                db.execute("PRAGMA user_version=2")
             db.execute("UPDATE turns SET status='interrupted' WHERE status='running'")
 
     @contextmanager
@@ -94,22 +99,22 @@ class Store:
     def history(self, topic_id):
         with self.connect() as db:
             return [dict(row) for row in db.execute(
-                "SELECT user_text,assistant_text FROM turns WHERE topic_id=? AND status='complete' ORDER BY sequence",
+                "SELECT user_text,assistant_text,action FROM turns WHERE topic_id=? AND status='complete' ORDER BY sequence",
                 (topic_id,),
             )]
 
     def latest_turn(self, topic_id):
         with self.connect() as db:
             row = db.execute(
-                "SELECT user_text,assistant_text,status FROM turns WHERE topic_id=? ORDER BY sequence DESC LIMIT 1",
+                "SELECT user_text,assistant_text,status,action FROM turns WHERE topic_id=? ORDER BY sequence DESC LIMIT 1",
                 (topic_id,),
             ).fetchone()
             return dict(row) if row else None
 
-    def start_turn(self, topic_id, generation_id, content):
+    def start_turn(self, topic_id, generation_id, content, action=None):
         with self.connect() as db:
-            db.execute("INSERT INTO turns(id,topic_id,user_text,status,created_at) VALUES (?,?,?,'running',?)",
-                       (generation_id, topic_id, content, now()))
+            db.execute("INSERT INTO turns(id,topic_id,user_text,status,created_at,action) VALUES (?,?,?,'running',?,?)",
+                       (generation_id, topic_id, content, now(), action))
 
     def update_turn(self, generation_id, text, status="running"):
         with self.connect() as db:

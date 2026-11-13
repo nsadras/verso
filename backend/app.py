@@ -129,7 +129,7 @@ def create_app(db_path=None, provider=None, credentials=None):
     async def message(topic_id: str, value: MessageInput):
         if not value.content.strip():
             raise HTTPException(400, "Write a message first.")
-        generation = await app.state.conversations.start(topic_id, value.content.strip())
+        generation = await app.state.conversations.start(topic_id, value.content.strip(), value.action)
         return StreamingResponse(app.state.conversations.events(generation), media_type="text/event-stream",
                                  headers={"X-Accel-Buffering": "no", "Cache-Control": "no-store"})
 

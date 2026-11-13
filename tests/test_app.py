@@ -94,7 +94,7 @@ def test_hidden_history_persists_and_topics_are_isolated(setup_app):
     assert result[0]["type"] == "start"
     assert "".join(event["text"] for event in result if event["type"] == "delta") == "A useful answer."
     assert result[-1]["status"] == "complete"
-    expected = {"user_text": "Remember the word cedar.", "assistant_text": "A useful answer.", "status": "complete"}
+    expected = {"user_text": "Remember the word cedar.", "assistant_text": "A useful answer.", "status": "complete", "action": None}
     latest = client.get(f"/api/topics/{topic}/latest-turn")
     assert latest.json() == expected
     assert latest.headers["cache-control"] == "no-store"
@@ -135,14 +135,14 @@ def test_latest_partial_turn_survives_restart_without_becoming_context(setup_app
     store = client.app.state.store
     store.start_turn(topic, "latest-partial", "Latest question")
     store.update_turn("latest-partial", text, status)
-    expected = {"user_text": "Latest question", "assistant_text": text, "status": status}
+    expected = {"user_text": "Latest question", "assistant_text": text, "status": status, "action": None}
     assert client.get(f"/api/topics/{topic}/latest-turn").json() == expected
     with TestClient(create_app(path, provider, credentials), base_url="http://localhost:8000") as restarted:
         if status == "running":
             expected["status"] = "interrupted"
         assert restarted.get(f"/api/topics/{topic}/latest-turn").json() == expected
         assert restarted.app.state.store.history(topic) == [{
-            "user_text": "Older completed exchange", "assistant_text": "A useful answer.",
+            "user_text": "Older completed exchange", "assistant_text": "A useful answer.", "action": None,
         }]
         assert len(provider.calls) == 1
 
@@ -312,12 +312,13 @@ def test_recent_context_is_bounded_and_current_message_is_preserved():
 
 
 @pytest.mark.asyncio
-async def test_cancellation_retains_partial_and_does_not_block_notes(tmp_path, monkeypatch):
+@pytest.mark.parametrize("action", [None, "test_me"])
+async def test_cancellation_retains_partial_and_does_not_block_notes(tmp_path, monkeypatch, action):
     store = Store(tmp_path / "app.sqlite3")
     topic = store.create_topic("Slow inference")["id"]
     provider = FakeProvider(slow=True)
     conversations = Conversations(store, provider, memory_credentials(monkeypatch))
-    generation = await conversations.start(topic, "Hello")
+    generation = await conversations.start(topic, "Hello", action)
     await provider.produced.wait()
     assert store.save_notebook(topic, "Writing while the model thinks", 0) == 1
     with pytest.raises(HTTPException) as caught:
@@ -327,6 +328,7 @@ async def test_cancellation_retains_partial_and_does_not_block_notes(tmp_path, m
     assert provider.closed
     assert not conversations.active
     assert store.history(topic) == []
+    assert store.latest_turn(topic)["action"] == action
     with store.connect() as db:
         assert tuple(db.execute("SELECT assistant_text,status FROM turns").fetchone()) == ("A useful ", "cancelled")
 
@@ -363,3 +365,82 @@ def test_late_checkpoint_cannot_overwrite_finalized_generation(tmp_path):
     store.update_turn("generation", "Older checkpoint")
     with store.connect() as db:
         assert tuple(db.execute("SELECT assistant_text,status FROM turns").fetchone()) == ("Final partial text", "cancelled")
+
+
+@pytest.mark.parametrize("action,instruction", [
+    ("explore", "Deepen understanding"),
+    ("check", "accuracy and completeness"),
+    ("test_me", "Ask exactly one conceptual question"),
+])
+def test_notebook_actions_share_only_selection_and_keep_context_after_restart(setup_app, action, instruction):
+    client, provider, path, credentials = setup_app
+    topic = new_topic(client)
+    selected = "A covector maps a vector to a scalar."
+    markdown = f"# My notes\n\n{selected}\n\nAn unrelated private note."
+    client.put(f"/api/topics/{topic}/notebook", json={"markdown": markdown, "revision": 0})
+    events(client.post(f"/api/topics/{topic}/messages", json={"content": "We discussed linearity."}))
+    result = events(client.post(f"/api/topics/{topic}/messages", json={"content": selected, "action": action}))
+    assert result[-1]["status"] == "complete"
+    messages = provider.calls[-1]
+    assert messages[1]["content"] == "We discussed linearity."
+    assert instruction in messages[-1]["content"]
+    assert selected in messages[-1]["content"]
+    assert "An unrelated private note" not in str(messages)
+    if action == "test_me":
+        assert "Do not include the answer" in messages[-1]["content"]
+        assert "Wait for my response" in messages[-1]["content"]
+    opening = messages[-1]
+    expected = {"user_text": selected, "assistant_text": "A useful answer.", "status": "complete", "action": action}
+    assert client.get(f"/api/topics/{topic}/latest-turn").json() == expected
+    assert client.get(f"/api/topics/{topic}/notebook").json() == {"markdown": markdown, "revision": 1}
+    with TestClient(create_app(path, provider, credentials), base_url="http://localhost:8000") as restarted:
+        assert restarted.get(f"/api/topics/{topic}/latest-turn").json() == expected
+        events(restarted.post(f"/api/topics/{topic}/messages", json={"content": "Here is my reasoning."}))
+        assert opening in provider.calls[-1]
+        assert provider.calls[-1][-1]["content"] == "Here is my reasoning."
+        assert restarted.get(f"/api/topics/{topic}/latest-turn").json()["action"] is None
+        assert restarted.get(f"/api/topics/{topic}/notebook").json()["markdown"] == markdown
+        other = new_topic(restarted)
+        events(restarted.post(f"/api/topics/{other}/messages", json={"content": "Hello"}))
+        assert selected not in str(provider.calls[-1])
+        assert restarted.delete(f"/api/topics/{topic}").status_code == 204
+        with sqlite3.connect(path) as db:
+            assert db.execute("SELECT count(*) FROM turns WHERE action IS NOT NULL").fetchone()[0] == 0
+
+
+def test_invalid_or_oversized_actions_do_not_create_turns(setup_app):
+    client, provider, *_ = setup_app
+    topic = new_topic(client)
+    url = f"/api/topics/{topic}/messages"
+    assert client.post(url, json={"content": "A note", "action": "rewrite"}).status_code == 422
+    assert client.post(url, json={"content": " \n ", "action": "explore"}).status_code == 400
+    assert client.post(url, json={"content": "x" * 10_000, "action": "check"}).status_code == 400
+    assert provider.calls == []
+    assert client.get(f"/api/topics/{topic}/latest-turn").json() is None
+
+
+def test_v1_database_migration_preserves_notes_settings_and_turns(tmp_path):
+    path = tmp_path / "existing.sqlite3"
+    store = Store(path)
+    topic = store.create_topic("Before actions")["id"]
+    store.save_notebook(topic, "My original notes", 0)
+    store.save_settings(ModelSettings(model="my-existing-model"))
+    store.start_turn(topic, "old-turn", "Original question")
+    store.update_turn("old-turn", "Original answer", "complete")
+    # Schema v1 is exactly the current schema without the nullable action column.
+    with store.connect() as db:
+        db.execute("ALTER TABLE turns DROP COLUMN action")
+        db.execute("PRAGMA user_version=1")
+    migrated = Store(path)
+    assert migrated.topic(topic)["markdown"] == "My original notes"
+    assert migrated.topic(topic)["revision"] == 1
+    assert migrated.settings().model == "my-existing-model"
+    assert migrated.latest_turn(topic) == {
+        "user_text": "Original question", "assistant_text": "Original answer", "status": "complete", "action": None,
+    }
+    migrated.start_turn(topic, "new-turn", "A new selection", "check")
+    migrated.update_turn("new-turn", "A review", "complete")
+    reopened = Store(path)
+    assert reopened.latest_turn(topic)["action"] == "check"
+    with reopened.connect() as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2

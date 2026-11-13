@@ -5,12 +5,16 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from backend.app import create_app
+from backend.actions import ACTION_INSTRUCTIONS
 from backend.credentials import Credentials
 
 
 class BrowserProvider:
     async def stream(self, settings, messages, api_key):
         current = messages[-1]["content"]
+        action = next((name for name, instruction in ACTION_INSTRUCTIONS.items() if current.startswith(instruction)), None)
+        if action:
+            current = current.split("<notebook-passage>\n", 1)[1].rsplit("\n</notebook-passage>", 1)[0]
         if current == "fail":
             raise RuntimeError("A simulated provider failure")
         if current in {"math-response", "table-response"}:
@@ -26,6 +30,14 @@ class BrowserProvider:
             yield "End of the long reply."
             return
         answer = "A response to: " + current
+        if action:
+            answer = {
+                "explore": "Consider how this idea connects to linearity.",
+                "check": "This is accurate, with one qualification: the map must be linear.",
+                "test_me": "How would doubling the input change the output, and why?",
+            }[action]
+        if current == "my reasoning" and any(ACTION_INSTRUCTIONS["test_me"] in message["content"] for message in messages[:-1]):
+            answer = "Your reasoning uses linearity: doubling the input doubles the output."
         if current == "recall":
             answer = "I remember: " + messages[1]["content"]
         for word in answer.split(" "):

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, errorMessage, streamMessage, type LatestTurn, type Settings as ModelSettings, type Topic } from './api'
+import { api, errorMessage, streamMessage, type LatestTurn, type NotebookAction, type Settings as ModelSettings, type Topic } from './api'
 import { Notebook, type NotebookHandle } from './Notebook'
 import { Settings } from './Settings'
 import { Diary, type DiaryHandle } from './Diary'
@@ -18,6 +18,7 @@ export default function App() {
   const [loading, setLoading] = useState(true), [error, setError] = useState('')
   const [input, setInput] = useState(''), [question, setQuestion] = useState(''), [answer, setAnswer] = useState('')
   const [page, setPage] = useState(0)
+  const [action, setAction] = useState<NotebookAction | null>(null)
   const [running, setRunning] = useState(false), [chatError, setChatError] = useState(''), [result, setResult] = useState('')
   const [omitted, setOmitted] = useState(0), [tab, setTab] = useState('chat'), [online, setOnline] = useState(navigator.onLine)
   const [renaming, setRenaming] = useState(false), [title, setTitle] = useState('')
@@ -62,6 +63,7 @@ export default function App() {
 
   function resetExchange(turn: LatestTurn | null = null) {
     setInput(''); setQuestion(turn?.user_text ?? ''); setAnswer(turn?.assistant_text ?? '')
+    setAction(turn?.action ?? null)
     setChatError(turn?.status === 'failed' ? 'The previous response did not finish. You can try your message again.' : '')
     setResult(turn?.status ?? ''); setOmitted(0); setPage(previous => previous + 1)
   }
@@ -135,24 +137,27 @@ export default function App() {
     finally { setNavigating(false) }
   }
 
-  async function send() {
-    if (loading || !topic || !input.trim() || controller.current || navigating) return
-    const content = input, abort = new AbortController()
+  async function send(content = input, notebookAction?: NotebookAction) {
+    if (loading || !topic || !content.trim() || controller.current || navigating) return
+    const abort = new AbortController()
     controller.current = abort; generation.current = ''
     let submitted = false
     setRunning(true)
+    if (notebookAction) setTab('chat')
     try {
-      await diary.current?.advancePage(abort.signal)
+      await diary.current?.advancePage(abort.signal, !!notebookAction)
       if (abort.signal.aborted) return
       setPage(previous => previous + 1)
-      setQuestion(content); setAnswer(''); setInput(''); setChatError(''); setResult(''); setOmitted(0)
+      setQuestion(content); setAnswer(''); setAction(notebookAction ?? null)
+      if (!notebookAction) setInput('')
+      setChatError(''); setResult(''); setOmitted(0)
       submitted = true
       await streamMessage(topic.id, content, abort.signal, event => {
         if (event.type === 'start') { generation.current = event.generation_id; setOmitted(event.omitted_turns) }
         if (event.type === 'delta') setAnswer(previous => previous + event.text)
         if (event.type === 'error') setChatError(event.message)
         if (event.type === 'done') setResult(event.status)
-      })
+      }, notebookAction)
     } catch (err) {
       if (abort.signal.aborted) { if (submitted) setResult('cancelled') }
       else setChatError(errorMessage(err))
@@ -215,10 +220,13 @@ export default function App() {
     {!online && <div className="notice page-notice" role="status">You’re offline. Reconnect to your host to save notes or use a model. Keep this page open to retain unsaved edits.</div>}
     {error && <div className="notice error page-notice" role="alert">{error} {!settings && <button onClick={() => void initialize()}>Reconnect</button>}<button className="dismiss" aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
         <main className={`workspace show-${tab}`}>
-          <Diary ref={diary} page={page} input={input} question={question} answer={answer}
+          <Diary ref={diary} page={page} input={input} question={question} answer={answer} action={action}
             running={running} disabled={loading || !topic || navigating} error={chatError} result={result} omitted={omitted}
-            onInput={setInput} onSend={() => void send()} onStop={() => void stop()} />
-          {topic ? <Notebook key={topic.id} ref={notebook} topic={topic} navigating={navigating} />
+            onInput={setInput} onSend={() => void send()} onStop={() => void stop()}
+            onRetryAction={() => { if (action) void send(question, action) }} />
+          {topic ? <Notebook key={topic.id} ref={notebook} topic={topic} navigating={navigating}
+            actionsDisabled={loading || running || navigating || showSettings}
+            onAction={(selected, kind) => void send(selected, kind)} />
             : <section className="notebook panel" aria-label="Persistent notebook"><div className="panel-heading"><h2>Notebook</h2></div><textarea className="notebook-editor" aria-label="Notebook" disabled placeholder={loading ? 'Loading…' : 'Unable to load notebook.'} /></section>}
         </main>
     </div>

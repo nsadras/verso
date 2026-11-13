@@ -25,7 +25,7 @@ class Conversations:
         self.store, self.provider, self.credentials = store, provider, credentials
         self.active: dict[str, Generation] = {}
 
-    async def start(self, topic_id, content):
+    async def start(self, topic_id, content, action=None):
         if topic_id in self.active:
             raise HTTPException(409, "This topic already has a response in progress.")
         generation = Generation(topic_id)
@@ -39,10 +39,10 @@ class Conversations:
                 raise HTTPException(400, "Add an API key in model settings before using a hosted provider.")
             history = await asyncio.to_thread(self.store.history, topic_id)
             try:
-                messages, omitted = build_context(history, content, settings)
+                messages, omitted = build_context(history, content, settings, action)
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
-            await asyncio.to_thread(self.store.start_turn, topic_id, generation.id, content)
+            await asyncio.to_thread(self.store.start_turn, topic_id, generation.id, content, action)
             generation.queue.put_nowait({"type": "start", "generation_id": generation.id,
                                          "omitted_turns": omitted})
             generation.task = asyncio.create_task(self._run(generation, settings, messages, key))

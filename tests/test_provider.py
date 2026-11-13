@@ -60,3 +60,16 @@ def test_automatic_response_budget_leaves_room_for_input_and_bounds_history(wind
     assert messages[-1]["content"] == "A new question"
     assert omitted > 0
     assert sum(len(message["content"].encode("utf-8")) + 16 for message in messages) < window
+
+
+def test_action_instructions_count_toward_context_budget_and_history_is_not_reinterpreted():
+    settings = ModelSettings(context_window=2048, max_output_tokens=64)
+    history = [{"user_text": "An older passage " * 10, "assistant_text": "An explanation " * 10,
+                "action": "explore"} for _ in range(10)]
+    messages, omitted = build_context(history, "A selected note", settings, "test_me")
+    assert 0 < omitted < len(history)
+    assert "Explore this notebook passage" in messages[-3]["content"]
+    assert "Test my understanding" in messages[-1]["content"]
+    assert sum(len(message["content"].encode("utf-8")) + 16 for message in messages) <= 2048 - 64 - 128
+    with pytest.raises(ValueError, match="input budget"):
+        build_context([], "x" * 1100, settings, "test_me")

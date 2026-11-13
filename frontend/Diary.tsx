@@ -1,8 +1,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
 import { Markdown } from './Markdown'
+import { NOTEBOOK_ACTIONS, type NotebookAction } from './api'
 
 export type DiaryHandle = {
-  advancePage: (signal: AbortSignal) => Promise<void>
+  advancePage: (signal: AbortSignal, fromNotebook?: boolean) => Promise<void>
   focusDraft: () => void
 }
 
@@ -11,6 +12,7 @@ type DiaryProps = {
   input: string
   question: string
   answer: string
+  action: NotebookAction | null
   running: boolean
   disabled: boolean
   error: string
@@ -19,10 +21,11 @@ type DiaryProps = {
   onInput: (value: string) => void
   onSend: () => void
   onStop: () => void
+  onRetryAction: () => void
 }
 
 export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
-  page, input, question, answer, running, disabled, error, result, omitted, onInput, onSend, onStop,
+  page, input, question, answer, action, running, disabled, error, result, omitted, onInput, onSend, onStop, onRetryAction,
 }, ref) {
   const surface = useRef<HTMLDivElement>(null)
   const paper = useRef<HTMLDivElement>(null)
@@ -90,7 +93,7 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
 
   useImperativeHandle(ref, () => ({
     focusDraft,
-    async advancePage(signal) {
+    async advancePage(signal, fromNotebook = false) {
       if (signal.aborted) throw new DOMException('Cancelled', 'AbortError')
       const scroll = surface.current, pageElement = paper.current, draft = editor.current
       if (!scroll || !pageElement || !draft || !scroll.clientHeight ||
@@ -100,14 +103,14 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
       // draft with identical ink at this anchor, then remove the transform before paint.
       const pageStyle = getComputedStyle(pageElement)
       const padding = parseFloat(pageStyle.getPropertyValue('--page-padding'))
-      const distance = draft.getBoundingClientRect().top - scroll.getBoundingClientRect().top - padding
+      const distance = fromNotebook ? 24 : draft.getBoundingClientRect().top - scroll.getBoundingClientRect().top - padding
       const scrollTop = scroll.scrollTop
       pageElement.style.paddingTop = pageStyle.paddingTop
       scroll.style.overflowY = 'hidden'
       scroll.setAttribute('data-advancing', 'true')
       setMoreBelow(false)
       const movement = pageElement.animate(
-        [{ transform: 'translateY(0)' }, { transform: `translateY(${-distance}px)` }],
+        [{ transform: 'translateY(0)', opacity: 1 }, { transform: `translateY(${-distance}px)`, opacity: fromNotebook ? 0 : 1 }],
         { duration: 420, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' },
       )
       const animations = [movement]
@@ -186,7 +189,10 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
     }}>
       <div className={`diary-page${!question ? ' is-blank' : ''}`} ref={paper}>
         {question && <div className="diary-exchange" key={page} ref={exchange}>
-          <p className="diary-user">{question}</p>
+          {action ? <>
+            <p className="diary-action"><strong>{NOTEBOOK_ACTIONS[action]}</strong></p>
+            <blockquote className="diary-user diary-quotation">{question}</blockquote>
+          </> : <p className="diary-user">{question}</p>}
           <div className="markdown diary-response" aria-busy={running}>
             <Markdown>{answer}</Markdown>
           </div>
@@ -211,7 +217,8 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
         {result === 'running' && !running && <p className="diary-feedback">This is a saved partial response. Refresh to check for updates.</p>}
         {error && <div className="diary-feedback error" role="alert">
           <p>{error}</p>
-          <button onClick={() => { onInput(question); focusDraft() }}>Use this message again</button>
+          {action ? <button disabled={running || disabled} onClick={onRetryAction}>Try {NOTEBOOK_ACTIONS[action]} again</button>
+            : <button onClick={() => { onInput(question); focusDraft() }}>Use this message again</button>}
         </div>}
         {omitted > 0 && <p className="diary-feedback">{omitted} older {omitted === 1 ? 'exchange is' : 'exchanges are'} saved but outside the model’s current context.</p>}
       </div>

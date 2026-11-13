@@ -33,7 +33,7 @@ export function Settings({ initial, onClose, onSave }: { initial: ModelSettings;
           setKey(''); setClear(false)
         }}><option value="local">Local model</option><option value="cloud">Hosted provider · bring your own key</option></select></label>
         {value.mode === 'cloud' && <>
-          <p className="notice">Messages and recent hidden history will be sent to the selected provider. Your notebook is not sent. Provider usage may incur charges.</p>
+          <p className="notice">Messages, recent hidden history, and notebook text you share through Explore, Check, or Test Me will be sent to the selected provider. These actions share the selected passage, or the whole notebook when nothing is selected. Provider usage may incur charges.</p>
           <label>Provider<select value={value.provider} onChange={event => { update('provider', event.target.value as ModelSettings['provider']); setKey(''); setClear(false) }}>
             <option value="openai">OpenAI / OpenAI-compatible</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option>
           </select></label>

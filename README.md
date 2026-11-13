@@ -12,7 +12,7 @@ Verso puts a conversation beside a notebook. Ask a question, work through an exp
 
 **The notebook is the primary artifact.** The conversation helps you develop it. Verso makes room to question an explanation, connect it to something you know, and decide what is worth remembering.
 
-You and the AI write on one continuous surface. The previous exchange stays visible while you compose a follow-up, then gently moves out of view when you send it. Your notebook remains beside you. It autosaves and belongs entirely to you. The AI does not read or edit the notebook.
+You and the AI write on one continuous surface. The previous exchange stays visible while you compose a follow-up, then gently moves out of view when you send it. Your notebook remains beside you. It autosaves and belongs entirely to you. The AI sees only the passages you choose to share and never edits your notes.
 
 Only the current exchange is visible. Older exchanges remain stored on your host, and recent turns provide context to the model. Your latest exchange and saved notes return when you reopen a topic.
 
@@ -39,7 +39,8 @@ The defaults are `gemma4:12b` and `http://127.0.0.1:11434/v1`. Verso does not do
 
 - **Start a topic.** Use **New chat**; each topic has its own conversation and notebook.
 - **Write on the page.** Click blank space in the chat to begin. **Enter** sends; **Shift+Enter** adds a line. Continue beneath the reply. Click the small pulsing dot to stop a response.
-- **Keep what matters.** Write your notes on the right. **Saved on host** confirms they are saved. Use **Preview** for Markdown, tables, and math, or **Export .md** to take your notes with you.
+- **Keep what matters.** Write your notes on the right. **Preview**, beside the contextual actions, renders Markdown, tables, and math; **Edit** returns to the source. A small footer shows save status, word count, and whether actions apply to a selected passage or the whole notebook.
+- **Work with an idea.** Use **Explore**, **Check**, or **Test Me** in the notebook header for deeper connections, a review, or one question to answer. Highlight a passage in Edit or Preview to focus the action; with nothing selected, it uses the whole notebook. Your notes and any unfinished chat draft stay intact.
 - **Make room.** Collapse the sidebar with the icon beside **New chat**. Long replies scroll; the little arrow indicates more text below. On a phone, use the **Chat** and **Notebook** tabs.
 
 Notes and conversations are stored on the machine running the app, in `data/notebook.sqlite3` by default. The app has no login and is intended for local or trusted private access.

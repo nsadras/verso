@@ -25,7 +25,7 @@ npx playwright install chromium
 npm test
 ```
 
-Build the frontend before running browser tests. Playwright starts its own backend on port 8011 with a deterministic provider and temporary SQLite database; it does not call a real model or paid provider. The suite covers desktop and mobile conversation, notebook durability, cancellation, export, conflicting edits, math and tables, focus behavior, and sidebar preferences.
+Build the frontend before running browser tests. Playwright starts its own backend on port 8011 with a deterministic provider and temporary SQLite database; it does not call a real model or paid provider. The suite covers desktop and mobile conversation, notebook durability, cancellation, conflicting edits, math and tables, focus behavior, contextual actions, and sidebar preferences.
 
 On a minimal Linux host, Chromium may also need system libraries installed with `npx playwright install-deps chromium`, which requires administrator access.
 
@@ -49,7 +49,17 @@ If the provider reports a response or context limit, the partial reply is retain
 
 In **Model settings**, choose **Hosted provider** and select OpenAI/OpenAI-compatible, Anthropic, or Google Gemini. Enter the provider’s model ID without a LiteLLM prefix. Leave the endpoint blank for the provider default, or enter an HTTPS endpoint for an OpenAI-compatible service.
 
-Hosted use is explicit: messages and recent hidden history are sent to the selected provider. The notebook is not sent, and there is no automatic cloud fallback. **Save & test connection** makes a small inference request and may incur provider charges.
+Hosted use is explicit: messages, recent hidden history, and notebook text shared through contextual actions are sent to the selected provider. Actions share the selected passage, or the whole notebook when nothing is selected. There is no automatic cloud fallback. **Save & test connection** makes a small inference request and may incur provider charges.
+
+### Contextual notebook actions
+
+**Explore**, **Check**, and **Test Me** remain at the right of the compact notebook header as muted text controls. Preview/Edit sits on the same line after a subtle divider. A small, borderless footer shows save status, word count, and action scope. Actions send a snapshot of the selected passage, or the current whole Markdown notebook when nothing is selected, alongside recent complete turns from the same topic. Selection works in both Edit and Preview and survives moving focus through the header; Escape clears it. Empty notebooks disable the model actions. Preview always applies to the whole notebook.
+
+Actions do not require the notebook to have finished autosaving and cannot modify it. Explore develops the idea; Check reviews accuracy and qualifications using the model's knowledge; Test Me requests one conceptual question and waits for an answer before feedback. Model adherence to these instructions varies.
+
+`POST /api/topics/{id}/messages` accepts an optional `action` (`explore`, `check`, or `test_me`); `content` holds the passage or whole notebook. The backend supplies action instructions and includes their size in the context budget. Completed action turns retain their instructions when used as follow-up context, subject to the same history budget as other turns. Oversized requests are rejected rather than silently shortening the text; select a shorter passage or increase the context window. Failed and stopped turns remain excluded from future context.
+
+SQLite schema version 2 adds a nullable action field to conversation turns and migrates version 1 on startup. The latest-turn endpoint returns that field so the small action label survives refreshes and restarts. Existing notes, settings, and ordinary turns are preserved. There is no note provenance, historical search, or separate quiz state in this stage.
 
 Keys stay on the host. When **Remember** is selected, the app uses a supported OS credential store if available. Otherwise, or if storage fails, the replacement key is held in memory until the backend restarts. The settings dialog reports the storage source. Stored and session keys are scoped to connection mode, provider, and endpoint; they are never stored in SQLite or returned by the API.
 
@@ -66,6 +76,8 @@ The database defaults to `data/notebook.sqlite3`. Set `VERSO_DB` to use another 
 Each topic owns a Markdown document and its stored conversation. The UI shows only the latest exchange, including saved partial replies, and has no full-transcript browser or API. Reopening a partial reply does not resume generation automatically. The browser stores the selected topic ID and sidebar preference; conversation text remains on the host.
 
 Notebook saves are debounced by 500 ms, serialized, and revision-checked. **Saved on host** means the server acknowledged the write. A conflict preserves the local draft and offers export/reload. Navigation between topics waits for saves to succeed.
+
+There is no routine export control in the notebook header. **Export my draft** remains available during a save conflict so unsaved work can be recovered before reloading. The existing Markdown export API is also retained.
 
 Partial output is checkpointed about once a second, so a crash may lose the last second of a reply. Startup marks unfinished generations as interrupted. Only complete turns are eligible for future model context.
 

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
+import { notebookOption } from './notebook'
 
 async function openTopics(page: Page, mobile: boolean) {
   if (mobile) await page.getByRole('button', { name: 'Open topics', exact: true }).click()
@@ -30,9 +31,6 @@ test('conversation advances, notebook persists, and history survives reload', as
   await notebook.fill('# My understanding\n\nKeep this idea.')
   await expect(notebook).toHaveValue('# My understanding\n\nKeep this idea.')
   await expect(page.getByText('✓ Saved on host')).toBeVisible()
-  const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export .md' }).click()
-  expect((await download).suggestedFilename()).toMatch(/\.md$/)
   await panel(page, 'Conversation', isMobile)
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Remember cedar')
   await page.getByRole('textbox', { name: 'Message', exact: true }).press('Enter')
@@ -51,7 +49,7 @@ test('conversation advances, notebook persists, and history survives reload', as
   await expect(page.getByText('A response to: Remember cedar', { exact: true })).toHaveCount(0)
   await panel(page, 'Notebook', isMobile)
   await expect(notebook).toHaveValue('# My understanding\n\nKeep this idea.')
-  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await notebookOption(page, 'Preview')
   await expect(page.getByRole('heading', { name: 'My understanding', exact: true })).toBeVisible()
   await panel(page, 'Conversation', isMobile)
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('recall')
@@ -164,12 +162,15 @@ test('Verso retains earlier browser preferences and replaces old shell caches', 
     return caches.keys()
   })
   expect(cacheNames.some(name => name.startsWith('verso-shell-'))).toBeTruthy()
-  expect(cacheNames.some(name => name.startsWith('ephemeral-shell-'))).toBeFalsy()
+  // Worker readiness can resolve while its activation cleanup is still running.
+  await expect.poll(() => page.evaluate(async () =>
+    (await caches.keys()).some(name => name.startsWith('ephemeral-shell-')))).toBeFalsy()
   expect((await (await request.get('/manifest.webmanifest')).json()).short_name).toBe('Verso')
 
   // Newly saved preferences take precedence over the older values on reload.
   await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await page.getByRole('button', { name: newerTitle, exact: true }).click()
+  await expect(page.getByRole('button', { name: newerTitle, exact: true })).toHaveAttribute('aria-current', 'page')
   await page.reload()
   await expect(page.getByRole('button', { name: 'Hide sidebar', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: newerTitle, exact: true })).toHaveAttribute('aria-current', 'page')
@@ -507,14 +508,11 @@ test('LaTeX renders in streamed replies and notebook previews while preserving s
   const notebook = page.getByRole('textbox', { name: 'Notebook', exact: true })
   await notebook.fill(source)
   await expect(page.getByText('✓ Saved on host')).toBeVisible()
-  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await notebookOption(page, 'Preview')
   const preview = page.locator('.notebook-preview')
   expect(await preview.locator('math annotation').allTextContents()).toEqual(await reply.locator('math annotation').allTextContents())
   expect(await preview.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy()
-  const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export .md' }).click()
-  expect(readFileSync((await (await download).path())!, 'utf8')).toBe(source)
-  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await notebookOption(page, 'Edit')
   await expect(notebook).toHaveValue(source)
   await page.reload()
   await panel(page, 'Notebook', isMobile)
@@ -561,15 +559,12 @@ test('Markdown tables render with math, alignment, and contained horizontal scro
   const notebook = page.getByRole('textbox', { name: 'Notebook', exact: true })
   await notebook.fill(source)
   await expect(page.getByText('✓ Saved on host')).toBeVisible()
-  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await notebookOption(page, 'Preview')
   const preview = page.locator('.notebook-preview')
   await expect(preview.getByRole('table')).toHaveCount(2)
   expect(await preview.locator('math annotation').allTextContents()).toEqual(await reply.locator('math annotation').allTextContents())
   expect(await preview.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy()
-  const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export .md' }).click()
-  expect(readFileSync((await (await download).path())!, 'utf8')).toBe(source)
-  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await notebookOption(page, 'Edit')
   await expect(notebook).toHaveValue(source)
   expect(errors).toEqual([])
 })

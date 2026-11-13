@@ -4,6 +4,8 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 
+from .actions import NotebookAction
+
 
 class TopicInput(BaseModel):
     title: str = Field(min_length=1, max_length=120)
@@ -23,6 +25,7 @@ class NotebookInput(BaseModel):
 
 class MessageInput(BaseModel):
     content: str = Field(min_length=1, max_length=100_000)
+    action: NotebookAction | None = None
 
 
 class ModelSettings(BaseModel):
