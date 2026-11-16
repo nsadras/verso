@@ -2,7 +2,7 @@
 
 When everything can be saved, nothing demands your attention.
 
-Verso is built on the idea that constraints can foster focus. When everything produced by an LLM can be saved and revisited later, it's far too easy to accumulate a library's worth of markdown files without ever engaging with their contents. You become a passive observer of the LLM's thought process rather than an active participant. In Verso, every LLM response dissapears after a single turn, while your own notes persist. The LLM helps you explore, question, and refine your understanding, but you decide what's worth keeping.
+Verso is built on the idea that constraints can foster focus. When everything produced by an LLM can be saved and revisited later, it's far too easy to accumulate a library's worth of markdown files without ever engaging with their contents. You become a passive observer of the LLM's thought process rather than an active participant. In Verso, every LLM response disappears after a single turn, while your own notes persist. The LLM helps you explore, question, and refine your understanding, but you decide what's worth keeping.
 
 ![An example conversation about vectors and covectors beside a notebook of personal notes, with a follow-up question being composed.](docs/images/conversation.png)
 
