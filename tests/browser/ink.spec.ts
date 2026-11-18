@@ -279,6 +279,43 @@ test('pinch anchors the writing, pans sideways, restores the view and keeps pen 
   expect(layers).toEqual([true, true])
 })
 
+test('zoomed handwriting survives notes-only, divider resizing and tablet rotation', async ({ page, isMobile }) => {
+  const id = await openInk(page, isMobile)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  if (isMobile) await page.getByRole('button', { name: 'Show split view', exact: true }).click()
+  const canvas = page.getByLabel('Ink canvas', { exact: true })
+  await stroke(canvas)
+  await count(page, id, 1)
+  const original = (await savedPages(page, id))[0].strokes[0]
+  const box = (await canvas.boundingBox())!
+  await canvas.dispatchEvent('wheel', { ctrlKey: true, deltaY: -Math.log(1.5) / .002, clientX: box.x, clientY: box.y })
+  await expect.poll(async () => (await camera(canvas)).zoom).toBeCloseTo(1.5)
+  await page.getByRole('button', { name: 'Expand notebook', exact: true }).click()
+  await stroke(canvas, [[300, 100], [350, 130]])
+  await count(page, id, 2)
+  await page.getByRole('button', { name: 'Show split view', exact: true }).click()
+  const divider = page.getByRole('separator', { name: 'Resize conversation and notebook' })
+  await divider.click({ trial: true })
+  const handle = (await divider.boundingBox())!
+  // The S Pen can resize the divider without making a stray notebook stroke.
+  const pointer = { pointerType: 'pen', pointerId: 31, button: 0, buttons: 1, clientX: handle.x + handle.width / 2, clientY: handle.y + 50 }
+  await divider.dispatchEvent('pointerdown', pointer)
+  await divider.dispatchEvent('pointermove', { ...pointer, clientX: pointer.clientX + 65 })
+  await divider.dispatchEvent('pointerup', { ...pointer, clientX: pointer.clientX + 65, buttons: 0 })
+  await page.setViewportSize({ width: 800, height: 1280 })
+  await expect(divider).toHaveAttribute('aria-orientation', 'horizontal')
+  await stroke(canvas, [[500, 100], [530, 150]])
+  await count(page, id, 3)
+  const strokes = (await savedPages(page, id))[0].strokes
+  expect(strokes[0]).toEqual(original)
+  expect(strokes[1].points[0][0]).toBeCloseTo(300)
+  expect(strokes[1].points[0][1]).toBeCloseTo(100)
+  expect(strokes[2].points[0][0]).toBeCloseTo(500)
+  expect(strokes[2].points[0][1]).toBeCloseTo(100)
+  expect((await camera(canvas)).zoom).toBeCloseTo(1.5)
+  await page.screenshot({ path: `test-results/layout-ink-${isMobile ? 'touch' : 'mouse'}.png` })
+})
+
 test('Move supports one finger, pen input excludes navigation, and interrupted gestures leave no ink', async ({ page, isMobile }) => {
   const id = await openInk(page, isMobile), canvas = page.getByLabel('Ink canvas', { exact: true })
   const start = await camera(canvas)

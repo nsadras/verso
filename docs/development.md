@@ -112,6 +112,14 @@ VERSO_ORIGINS=https://your-host.your-tailnet.ts.net uv run main.py
 On a supporting browser, install the app through its browser menu. The PWA caches the app shell and bundled assets, not API data or credentials. Opening the workspace requires a connection to the host. Already-open ink notebooks retain completed edits in IndexedDB during brief outages and retry synchronization; pending drafts recover after a refresh once the host is reachable. Full offline opening and multi-device offline merging are not implemented. Keep the page open to retain unsaved text edits during an outage. Clearing browser data also removes tablet-only ink drafts. Service-worker updates wait for existing tabs to close.
 
 
+## Workspace layout
+
+The expand icon beside **Text / Ink** switches to notes-only and hides the desktop sidebar. The same button returns to split view and restores the sidebar's previous collapsed/expanded preference. Both editors stay mounted, so unfinished chat drafts, notebook selections and scrolling, ink strokes, and ongoing responses are retained. Using a notebook action returns to split view to show the response alongside the notes. On phones, Chat, Notebook, and Split shortcuts remain available above the workspace.
+
+Split view follows viewport orientation: conversation above notes in portrait, conversation left of notes in landscape. Drag the small divider with a finger, pen, or mouse. Its touch target extends beyond the visible handle. Minimum pane sizes keep controls usable; in very small windows those minimums shrink together. The browser remembers a separate divider ratio for each orientation. Layout mode itself starts at split on larger screens and chat on phones when the app opens.
+
+The divider can also receive keyboard focus: use Left/Right in landscape or Up/Down in portrait to adjust by 2%, with Shift for 10%. Home and End reach the available size limits; Enter or a double-click balances the panes. This is a workspace layout change, so it does not invoke the browser's fullscreen API or change browser zoom.
+
 ## Handwriting on a tablet
 
 Choose **Ink** beside **Text** in the notebook. Write with the S Pen or a mouse on a continuous surface with room downward and sideways. **Eraser** removes whole strokes; **Undo/Redo** retain up to 50 edits across the notebook in the current session. Storage boundaries never clip a stroke or move existing writing. Use private HTTPS for coalesced pen samples where supported; ordinary pointer events remain the fallback.

@@ -104,3 +104,11 @@ Contextual actions share the selected rectangle or the visible writing. A snapsh
 Browser testing caught a layout change discarding a stroke in progress; resizing now preserves that stroke. Automated checks cover actual browser pinch input, pen coordinates after navigation and resizing, view restoration, legacy draft migration with both unsent and acknowledged requests, cross-section undo/redo, snapshot cropping, recovery, and conflicts. The new gesture and palm feel still needs a Galaxy Tab trial.
 
 Validation: the production build, 51 backend tests, and 70 desktop/mobile browser tests pass. The strengthened storage-capacity check also passes on both browser configurations: writing continues into another section while a reply streams, without rewriting earlier ink, and saved coordinates remain accurate after resizing.
+
+## 2026-11-18 — Focused notes and adjustable split view
+
+The user confirmed that pinch zoom works well on the tablet. The notebook now has a small expand/return control beside Text and Ink. Notes-only hides the desktop sidebar and conversation; returning restores the previous sidebar preference. A contextual notebook action opens split view automatically so the response and notes are available together. Phones retain Chat/Notebook shortcuts and gain Split.
+
+Split view puts the conversation above notes in portrait and beside them in landscape. A subtle divider supports touch, pen, mouse, and keyboard resizing, with minimum pane sizes and a separate remembered ratio for each orientation. Double-clicking the divider or pressing Enter balances the panels. Text, ink, and chat remain mounted across layout changes so drafts, scrolling, writing coordinates, and streams continue normally. No dependency was added.
+
+Validation: the production build and 78 desktop/mobile browser tests pass. New checks cover notes-only transitions, sidebar restoration, text drafts and scrolling, mouse/touch/keyboard divider controls, separate orientation preferences, actions returning to split view, ongoing responses, and zoomed handwriting after pen-driven resizing and tablet rotation. Portrait screenshots were also reviewed.

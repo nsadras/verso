@@ -5,6 +5,7 @@ import { Notebook } from './NotebookWorkspace'
 import { deleteDraft } from './inkDrafts'
 import { Settings } from './Settings'
 import { Diary, type DiaryHandle } from './Diary'
+import { Workspace, type WorkspaceView } from './Workspace'
 
 const ACTIVE_TOPIC_KEY = 'verso.active-topic'
 const SIDEBAR_COLLAPSED_KEY = 'verso.sidebar-collapsed'
@@ -23,7 +24,8 @@ export default function App() {
   const [action, setAction] = useState<NotebookAction | null>(null)
   const [sharedImage, setSharedImage] = useState<string | undefined>()
   const [running, setRunning] = useState(false), [chatError, setChatError] = useState(''), [result, setResult] = useState('')
-  const [omitted, setOmitted] = useState(0), [tab, setTab] = useState('chat'), [online, setOnline] = useState(navigator.onLine)
+  const [omitted, setOmitted] = useState(0), [online, setOnline] = useState(navigator.onLine)
+  const [view, setView] = useState<WorkspaceView>(() => matchMedia('(max-width: 760px)').matches ? 'chat' : 'split')
   const [renaming, setRenaming] = useState(false), [title, setTitle] = useState('')
   const [navigating, setNavigating] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
@@ -49,7 +51,9 @@ export default function App() {
     void initialize()
     const onOnline = () => setOnline(true), onOffline = () => setOnline(false)
     const desktop = window.matchMedia('(min-width: 761px)')
-    const onDesktop = () => { if (desktop.matches) sidebar.current?.close() }
+    const onDesktop = () => {
+      if (desktop.matches) { sidebar.current?.close(); setView(previous => previous === 'chat' ? 'split' : previous) }
+    }
     window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline)
     desktop.addEventListener('change', onDesktop)
     return () => { controller.current?.abort(); window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); desktop.removeEventListener('change', onDesktop) }
@@ -82,7 +86,7 @@ export default function App() {
     if (!notebook.current) return true
     if (await notebook.current.flush()) return true
     setError('Your notebook has unsaved changes. Resolve the save error or export your draft before switching topics.')
-    setTab('notebook')
+    setView('notes')
     return false
   }
 
@@ -104,7 +108,7 @@ export default function App() {
       if (!await flushNotes()) { sidebar.current?.close(); return }
       const created = await api<Topic>('/topics', 'POST', { title: 'New chat' })
       setTopics(previous => [created, ...previous]); setTopic(created); resetExchange()
-      setRenaming(false); sidebar.current?.close(); setTab('chat')
+      setRenaming(false); sidebar.current?.close(); setView(matchMedia('(max-width: 760px)').matches ? 'chat' : 'split')
       diary.current?.focusDraft()
     } catch (err) { setError(errorMessage(err)); sidebar.current?.close() }
     finally { setNavigating(false) }
@@ -148,7 +152,7 @@ export default function App() {
     controller.current = abort; generation.current = ''
     let submitted = false
     setRunning(true)
-    if (notebookAction) setTab('chat')
+    if (notebookAction) setView('split')
     try {
       await diary.current?.advancePage(abort.signal, !!notebookAction)
       if (abort.signal.aborted) return
@@ -200,7 +204,7 @@ export default function App() {
     </button>
   </>
 
-  return <div className={`app-shell${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}>
+  return <div className={`app-shell${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}${view === 'notes' ? ' is-notes-only' : ''}`}>
     <aside className="sidebar" aria-label="Topics">
       <button type="button" className="sidebar-toggle" onClick={() => setSidebarCollapsed(previous => !previous)}
         aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'} title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
@@ -220,22 +224,25 @@ export default function App() {
     <div className="main-workspace">
       <div className="mobile-toolbar">
         <button aria-label="Open topics" onClick={() => sidebar.current?.showModal()}>☰ Topics</button>
-        <nav className="mobile-tabs" aria-label="Workspace panel"><button aria-pressed={tab === 'chat'} onClick={() => setTab('chat')}>Chat</button><button aria-pressed={tab === 'notebook'} onClick={() => setTab('notebook')}>Notebook</button></nav>
+        <nav className="mobile-tabs" aria-label="Workspace panel">
+          <button aria-pressed={view === 'chat'} onClick={() => setView('chat')}>Chat</button>
+          <button aria-pressed={view === 'notes'} onClick={() => setView('notes')}>Notebook</button>
+          <button aria-pressed={view === 'split'} onClick={() => setView('split')}>Split</button>
+        </nav>
       </div>
 
     {!online && <div className="notice page-notice" role="status">You’re offline. Ink drafts can be saved on this tablet; reconnect to sync or use a model. Keep this page open to retain unsaved text edits.</div>}
     {error && <div className="notice error page-notice" role="alert">{error} {!settings && <button onClick={() => void initialize()}>Reconnect</button>}<button className="dismiss" aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
-        <main className={`workspace show-${tab}`}>
-          <Diary ref={diary} page={page} input={input} question={question} answer={answer} action={action} image={sharedImage}
+        <Workspace view={view} conversation={<Diary ref={diary} page={page} input={input} question={question} answer={answer} action={action} image={sharedImage}
             running={running} disabled={loading || !topic || navigating} error={chatError} result={result} omitted={omitted}
             onInput={setInput} onSend={() => void send()} onStop={() => void stop()}
-            onRetryAction={() => { if (action) void send(question, action, sharedImage) }} />
-          {topic ? <Notebook key={topic.id} ref={notebook} topic={topic} navigating={navigating}
+            onRetryAction={() => { if (action) void send(question, action, sharedImage) }} />}
+          notebook={topic ? <Notebook key={topic.id} ref={notebook} topic={topic} navigating={navigating}
+            expanded={view === 'notes'} onToggleExpanded={() => setView(previous => previous === 'notes' ? 'split' : 'notes')}
             actionsDisabled={loading || running || navigating || showSettings}
             visionVerified={settings?.vision_verified ?? false} onSettings={() => setShowSettings(true)}
             onAction={(selected, kind, image) => void send(selected, kind, image)} />
-            : <section className="notebook panel" aria-label="Persistent notebook"><div className="panel-heading"><h2>Notebook</h2></div><textarea className="notebook-editor" aria-label="Notebook" disabled placeholder={loading ? 'Loading…' : 'Unable to load notebook.'} /></section>}
-        </main>
+            : <section className="notebook panel" aria-label="Persistent notebook"><div className="panel-heading"><h2>Notebook</h2></div><textarea className="notebook-editor" aria-label="Notebook" disabled placeholder={loading ? 'Loading…' : 'Unable to load notebook.'} /></section>} />
     </div>
     {showSettings && settings && <Settings initial={settings} onSave={setSettings} onClose={() => setShowSettings(false)} />}
   </div>
