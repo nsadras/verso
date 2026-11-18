@@ -3,6 +3,7 @@ import os
 from contextlib import suppress
 
 from .actions import user_message
+from .ink import image_budget
 
 # Use bundled model metadata; importing LiteLLM must not fetch external pricing data.
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
@@ -34,12 +35,26 @@ class ResponseLimitReached(Exception):
 def message_cost(message):
     # Conservative byte budget works offline with unknown local model tokenizers.
     # It deliberately sacrifices some context rather than downloading a tokenizer.
-    return len(message["content"].encode("utf-8")) + 16
+    content = message["content"]
+    if isinstance(content, str):
+        return len(content.encode("utf-8")) + 16
+    return 16 + sum(len(part["text"].encode("utf-8")) if part["type"] == "text"
+                    else image_budget(part["image_url"]["url"]) for part in content)
 
 
-def build_context(history, content, settings, action=None):
-    system = {"role": "system", "content": SYSTEM_PROMPT}
-    current = {"role": "user", "content": user_message(content, action)}
+def user_content(content, action=None, image=None):
+    text = user_message(content, action)
+    if not image:
+        return text
+    return [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": image}}]
+
+
+def build_context(history, content, settings, action=None, image=None, include_images=True):
+    prompt = SYSTEM_PROMPT
+    if image or (include_images and any(turn.get("image") for turn in history)):
+        prompt += " Shared images are notebook source material too. Read handwriting, equations, and diagrams; ask if a symbol is unclear."
+    system = {"role": "system", "content": prompt}
+    current = {"role": "user", "content": user_content(content, action, image)}
     # Leave room for a reply when choosing history, without capping generation.
     reserve = settings.max_output_tokens or min(4096, settings.context_window // 4)
     budget = settings.context_window - reserve - 128
@@ -47,14 +62,18 @@ def build_context(history, content, settings, action=None):
     if used > budget:
         raise ValueError("This message exceeds the input budget. Shorten it or increase the configured context window.")
     selected = []
+    images = int(image is not None)
     for turn in reversed(history):
-        pair = [{"role": "user", "content": user_message(turn["user_text"], turn.get("action"))},
+        if turn.get("image") and (not include_images or images >= 3):
+            break
+        pair = [{"role": "user", "content": user_content(turn["user_text"], turn.get("action"), turn.get("image"))},
                 {"role": "assistant", "content": turn["assistant_text"]}]
         cost = sum(message_cost(message) for message in pair)
         if used + cost > budget:
             break
         selected[0:0] = pair
         used += cost
+        images += int(bool(turn.get("image")))
     return [system, *selected, current], len(history) - len(selected) // 2
 
 

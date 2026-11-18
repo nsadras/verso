@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
 import { Markdown } from './Markdown'
 import { api, ApiError, downloadMarkdown, errorMessage, type NotebookAction, type NotebookData, type Topic } from './api'
 import { NotebookActions } from './NotebookActions'
@@ -6,13 +6,15 @@ import { NotebookActions } from './NotebookActions'
 export type NotebookHandle = { flush: () => Promise<boolean> }
 
 type NotebookProps = {
+  hidden?: boolean
+  viewSwitch?: ReactNode
   topic: Topic
   navigating: boolean
   actionsDisabled: boolean
   onAction: (text: string, action: NotebookAction) => void
 }
 
-export const Notebook = forwardRef<NotebookHandle, NotebookProps>(function Notebook({ topic, navigating, actionsDisabled, onAction }, ref) {
+export const Notebook = forwardRef<NotebookHandle, NotebookProps>(function Notebook({ topic, navigating, actionsDisabled, onAction, hidden, viewSwitch }, ref) {
   const [text, setText] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [preview, setPreview] = useState(false)
@@ -97,9 +99,9 @@ export const Notebook = forwardRef<NotebookHandle, NotebookProps>(function Noteb
   }, [text, loaded])
 
   const words = text.trim() ? text.trim().split(/\s+/).length : 0
-  return <section className="notebook panel" aria-label="Persistent notebook">
+  return <section className="notebook panel" aria-label="Persistent notebook" hidden={hidden}>
     <div className="panel-heading notebook-heading" ref={header}>
-      <h2 className="notebook-summary">Notebook</h2>
+      {viewSwitch ?? <h2 className="notebook-summary">Notebook</h2>}
       <NotebookActions editor={editor} preview={rendered} header={header} text={text} previewing={preview}
         disabled={!loaded || actionsDisabled} onAction={onAction} onSelectionChange={setHasSelection} />
       <span className="notebook-action-divider" aria-hidden="true">|</span>

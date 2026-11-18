@@ -2,9 +2,10 @@ import ipaddress
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .actions import NotebookAction
+from .ink import normalize_image
 
 
 class TopicInput(BaseModel):
@@ -26,6 +27,12 @@ class NotebookInput(BaseModel):
 class MessageInput(BaseModel):
     content: str = Field(min_length=1, max_length=100_000)
     action: NotebookAction | None = None
+    image: str | None = Field(default=None, max_length=4_000_000)
+
+    @field_validator("image")
+    @classmethod
+    def validate_image(cls, value):
+        return normalize_image(value) if value is not None else None
 
 
 class ModelSettings(BaseModel):

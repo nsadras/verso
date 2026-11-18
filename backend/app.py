@@ -3,6 +3,7 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -16,6 +17,8 @@ from .credentials import Credentials
 from .models import MessageInput, ModelSettings, NotebookInput, SettingsInput, TopicInput
 from .provider import LiteLLMProvider, public_error
 from .storage import Store
+from .ink import InkPageInput, vision_challenge
+from .provider import user_content
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,6 +31,7 @@ def create_app(db_path=None, provider=None, credentials=None):
         app.state.credentials = credentials or Credentials()
         app.state.provider = provider or LiteLLMProvider()
         app.state.conversations = Conversations(app.state.store, app.state.provider, app.state.credentials)
+        app.state.settings_epoch = 0
         yield
         await app.state.conversations.shutdown()
 
@@ -72,6 +76,7 @@ def create_app(db_path=None, provider=None, credentials=None):
         settings = store().settings()
         _, source = app.state.credentials.get(settings)
         return {**settings.model_dump(), "key_source": source,
+                "vision_verified": store().vision_verified(settings),
                 "keyring_available": app.state.credentials.backend is not None}
 
     @app.get("/api/health")
@@ -125,11 +130,24 @@ def create_app(db_path=None, provider=None, credentials=None):
         return Response(topic["markdown"], media_type="text/markdown; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{filename}.md"'})
 
+    @app.get("/api/topics/{topic_id}/ink-pages")
+    def ink_pages(topic_id: str):
+        require_topic(topic_id)
+        return store().ink_pages(topic_id)
+
+    @app.put("/api/topics/{topic_id}/ink-pages/{page_id}")
+    def save_ink_page(topic_id: str, page_id: UUID, value: InkPageInput):
+        require_topic(topic_id)
+        revision = store().save_ink_page(topic_id, str(page_id), value)
+        if revision is None:
+            raise HTTPException(409, "This ink page changed on another device. Your tablet draft is preserved.")
+        return {"revision": revision}
+
     @app.post("/api/topics/{topic_id}/messages")
     async def message(topic_id: str, value: MessageInput):
         if not value.content.strip():
             raise HTTPException(400, "Write a message first.")
-        generation = await app.state.conversations.start(topic_id, value.content.strip(), value.action)
+        generation = await app.state.conversations.start(topic_id, value.content.strip(), value.action, value.image)
         return StreamingResponse(app.state.conversations.events(generation), media_type="text/event-stream",
                                  headers={"X-Accel-Buffering": "no", "Cache-Control": "no-store"})
 
@@ -149,6 +167,7 @@ def create_app(db_path=None, provider=None, credentials=None):
     async def put_settings(value: SettingsInput):
         if app.state.conversations.active:
             raise HTTPException(409, "Stop the active response before changing model settings.")
+        app.state.settings_epoch += 1
         # Keys and settings are updated together on the event loop, before new requests start.
         if value.clear_key:
             try:
@@ -160,8 +179,43 @@ def create_app(db_path=None, provider=None, credentials=None):
                 app.state.credentials.set(value, value.api_key.strip(), value.remember_key)
             except RuntimeError as exc:
                 raise HTTPException(503, str(exc)) from exc
+        if value.clear_key or value.api_key:
+            store().set_vision_verified()
         store().save_settings(value)
         return settings_view()
+
+    @app.post("/api/settings/test-vision")
+    async def test_vision():
+        if app.state.conversations.active:
+            raise HTTPException(409, "Stop the active response before testing image support.")
+        settings = store().settings()
+        epoch = app.state.settings_epoch
+        key, _ = app.state.credentials.get(settings)
+        if settings.mode == "cloud" and not key:
+            raise HTTPException(400, "Add an API key first.")
+        store().set_vision_verified()
+        code, image = vision_challenge()
+        messages = [{"role": "user", "content": user_content(
+            "Read the eight-character code at the top of this image. Reply with only that code.", image=image)}]
+        # Thinking models may consume output tokens before returning the short code.
+        stream = app.state.provider.stream(settings.model_copy(update={"max_output_tokens": 1024}), messages, key)
+        try:
+            answer = ""
+            async with asyncio.timeout(120):
+                async for text in stream:
+                    answer += text
+            if not re.search(rf"\b{code}\b", answer.upper()):
+                raise HTTPException(502, "The model could not read the test image. Choose an image-capable model and retry. Text chat still works.")
+            if epoch != app.state.settings_epoch or store().connection(store().settings()) != store().connection(settings):
+                raise HTTPException(409, "Model settings changed during the check. Test again.")
+            store().set_vision_verified(settings)
+            return settings_view()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(502, "Image support could not be verified. " + public_error(exc)) from None
+        finally:
+            await stream.aclose()
 
     @app.post("/api/settings/test")
     async def test_connection():

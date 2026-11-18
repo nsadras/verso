@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, errorMessage, streamMessage, type LatestTurn, type NotebookAction, type Settings as ModelSettings, type Topic } from './api'
-import { Notebook, type NotebookHandle } from './Notebook'
+import type { NotebookHandle } from './Notebook'
+import { Notebook } from './NotebookWorkspace'
+import { deleteDraft } from './inkDrafts'
 import { Settings } from './Settings'
 import { Diary, type DiaryHandle } from './Diary'
 
@@ -19,6 +21,7 @@ export default function App() {
   const [input, setInput] = useState(''), [question, setQuestion] = useState(''), [answer, setAnswer] = useState('')
   const [page, setPage] = useState(0)
   const [action, setAction] = useState<NotebookAction | null>(null)
+  const [sharedImage, setSharedImage] = useState<string | undefined>()
   const [running, setRunning] = useState(false), [chatError, setChatError] = useState(''), [result, setResult] = useState('')
   const [omitted, setOmitted] = useState(0), [tab, setTab] = useState('chat'), [online, setOnline] = useState(navigator.onLine)
   const [renaming, setRenaming] = useState(false), [title, setTitle] = useState('')
@@ -64,6 +67,7 @@ export default function App() {
   function resetExchange(turn: LatestTurn | null = null) {
     setInput(''); setQuestion(turn?.user_text ?? ''); setAnswer(turn?.assistant_text ?? '')
     setAction(turn?.action ?? null)
+    setSharedImage(turn?.image)
     setChatError(turn?.status === 'failed' ? 'The previous response did not finish. You can try your message again.' : '')
     setResult(turn?.status ?? ''); setOmitted(0); setPage(previous => previous + 1)
   }
@@ -125,6 +129,7 @@ export default function App() {
     try {
       if (!await flushNotes()) { sidebar.current?.close(); return }
       await api(`/topics/${topic.id}`, 'DELETE')
+      await deleteDraft(topic.id).catch(() => {})
       const remaining = topics.filter(item => item.id !== topic.id)
       setTopics(remaining); setTopic(null); resetExchange(); setRenaming(false)
       if (remaining.length) await openTopic(remaining[0])
@@ -137,7 +142,7 @@ export default function App() {
     finally { setNavigating(false) }
   }
 
-  async function send(content = input, notebookAction?: NotebookAction) {
+  async function send(content = input, notebookAction?: NotebookAction, image?: string) {
     if (loading || !topic || !content.trim() || controller.current || navigating) return
     const abort = new AbortController()
     controller.current = abort; generation.current = ''
@@ -149,6 +154,7 @@ export default function App() {
       if (abort.signal.aborted) return
       setPage(previous => previous + 1)
       setQuestion(content); setAnswer(''); setAction(notebookAction ?? null)
+      setSharedImage(image)
       if (!notebookAction) setInput('')
       setChatError(''); setResult(''); setOmitted(0)
       submitted = true
@@ -157,7 +163,7 @@ export default function App() {
         if (event.type === 'delta') setAnswer(previous => previous + event.text)
         if (event.type === 'error') setChatError(event.message)
         if (event.type === 'done') setResult(event.status)
-      }, notebookAction)
+      }, notebookAction, image)
     } catch (err) {
       if (abort.signal.aborted) { if (submitted) setResult('cancelled') }
       else setChatError(errorMessage(err))
@@ -217,16 +223,17 @@ export default function App() {
         <nav className="mobile-tabs" aria-label="Workspace panel"><button aria-pressed={tab === 'chat'} onClick={() => setTab('chat')}>Chat</button><button aria-pressed={tab === 'notebook'} onClick={() => setTab('notebook')}>Notebook</button></nav>
       </div>
 
-    {!online && <div className="notice page-notice" role="status">You’re offline. Reconnect to your host to save notes or use a model. Keep this page open to retain unsaved edits.</div>}
+    {!online && <div className="notice page-notice" role="status">You’re offline. Ink drafts can be saved on this tablet; reconnect to sync or use a model. Keep this page open to retain unsaved text edits.</div>}
     {error && <div className="notice error page-notice" role="alert">{error} {!settings && <button onClick={() => void initialize()}>Reconnect</button>}<button className="dismiss" aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
         <main className={`workspace show-${tab}`}>
-          <Diary ref={diary} page={page} input={input} question={question} answer={answer} action={action}
+          <Diary ref={diary} page={page} input={input} question={question} answer={answer} action={action} image={sharedImage}
             running={running} disabled={loading || !topic || navigating} error={chatError} result={result} omitted={omitted}
             onInput={setInput} onSend={() => void send()} onStop={() => void stop()}
-            onRetryAction={() => { if (action) void send(question, action) }} />
+            onRetryAction={() => { if (action) void send(question, action, sharedImage) }} />
           {topic ? <Notebook key={topic.id} ref={notebook} topic={topic} navigating={navigating}
             actionsDisabled={loading || running || navigating || showSettings}
-            onAction={(selected, kind) => void send(selected, kind)} />
+            visionVerified={settings?.vision_verified ?? false} onSettings={() => setShowSettings(true)}
+            onAction={(selected, kind, image) => void send(selected, kind, image)} />
             : <section className="notebook panel" aria-label="Persistent notebook"><div className="panel-heading"><h2>Notebook</h2></div><textarea className="notebook-editor" aria-label="Notebook" disabled placeholder={loading ? 'Loading…' : 'Unable to load notebook.'} /></section>}
         </main>
     </div>

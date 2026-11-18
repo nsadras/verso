@@ -21,7 +21,7 @@ class Store:
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 2:
+            if version > 3:
                 raise RuntimeError("Database was created by a newer application.")
             if version == 0:
                 db.executescript("""
@@ -48,6 +48,18 @@ class Store:
                 db.execute("BEGIN")
                 db.execute("ALTER TABLE turns ADD COLUMN action TEXT CHECK(action IN ('explore','check','test_me'))")
                 db.execute("PRAGMA user_version=2")
+            if version < 3:
+                # Run each migration in the same transaction; do not use executescript here.
+                if not db.in_transaction:
+                    db.execute("BEGIN")
+                db.execute("ALTER TABLE turns ADD COLUMN image TEXT")
+                db.execute("""CREATE TABLE ink_pages (
+                    topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+                    id TEXT NOT NULL, document TEXT NOT NULL, revision INTEGER NOT NULL,
+                    mutation_id TEXT NOT NULL, created_at TEXT NOT NULL,
+                    PRIMARY KEY(topic_id,id))""")
+                db.execute("CREATE TABLE vision_verification (id INTEGER PRIMARY KEY CHECK(id=1), connection TEXT NOT NULL)")
+                db.execute("PRAGMA user_version=3")
             db.execute("UPDATE turns SET status='interrupted' WHERE status='running'")
 
     @contextmanager
@@ -98,23 +110,69 @@ class Store:
 
     def history(self, topic_id):
         with self.connect() as db:
-            return [dict(row) for row in db.execute(
-                "SELECT user_text,assistant_text,action FROM turns WHERE topic_id=? AND status='complete' ORDER BY sequence",
+            return [self.turn_view(row) for row in db.execute(
+                "SELECT user_text,assistant_text,action,image FROM turns WHERE topic_id=? AND status='complete' ORDER BY sequence",
                 (topic_id,),
             )]
 
     def latest_turn(self, topic_id):
         with self.connect() as db:
             row = db.execute(
-                "SELECT user_text,assistant_text,status,action FROM turns WHERE topic_id=? ORDER BY sequence DESC LIMIT 1",
+                "SELECT user_text,assistant_text,status,action,image FROM turns WHERE topic_id=? ORDER BY sequence DESC LIMIT 1",
                 (topic_id,),
             ).fetchone()
-            return dict(row) if row else None
+            return self.turn_view(row) if row else None
 
-    def start_turn(self, topic_id, generation_id, content, action=None):
+    @staticmethod
+    def turn_view(row):
+        result = dict(row)
+        if result.get("image") is None:
+            result.pop("image", None)
+        return result
+
+    def start_turn(self, topic_id, generation_id, content, action=None, image=None):
         with self.connect() as db:
-            db.execute("INSERT INTO turns(id,topic_id,user_text,status,created_at,action) VALUES (?,?,?,'running',?,?)",
-                       (generation_id, topic_id, content, now(), action))
+            db.execute("INSERT INTO turns(id,topic_id,user_text,status,created_at,action,image) VALUES (?,?,?,'running',?,?,?)",
+                       (generation_id, topic_id, content, now(), action, image))
+
+    def ink_pages(self, topic_id):
+        with self.connect() as db:
+            return [{"id": row["id"], "revision": row["revision"], "mutation_id": row["mutation_id"],
+                     **json.loads(row["document"])} for row in db.execute(
+                "SELECT * FROM ink_pages WHERE topic_id=? ORDER BY created_at,id", (topic_id,))]
+
+    def save_ink_page(self, topic_id, page_id, value):
+        document = json.dumps(value.model_dump(mode="json", exclude={"revision", "mutation_id"}))
+        mutation = str(value.mutation_id)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT revision,mutation_id,document FROM ink_pages WHERE topic_id=? AND id=?",
+                             (topic_id, page_id)).fetchone()
+            # A response lost on the network can be retried without a false conflict.
+            if row and row["mutation_id"] == mutation and row["document"] == document:
+                return row["revision"]
+            if (row and row["revision"] != value.revision) or (not row and value.revision != 0):
+                return None
+            revision = value.revision + 1
+            db.execute("""INSERT INTO ink_pages VALUES (?,?,?,?,?,?) ON CONFLICT(topic_id,id)
+                DO UPDATE SET document=excluded.document,revision=excluded.revision,mutation_id=excluded.mutation_id""",
+                       (topic_id, page_id, document, revision, mutation, now()))
+            return revision
+
+    @staticmethod
+    def connection(settings):
+        return json.dumps([settings.mode, settings.provider, settings.endpoint, settings.model])
+
+    def vision_verified(self, settings):
+        with self.connect() as db:
+            row = db.execute("SELECT connection FROM vision_verification WHERE id=1").fetchone()
+            return bool(row and row[0] == self.connection(settings))
+
+    def set_vision_verified(self, settings=None):
+        with self.connect() as db:
+            db.execute("DELETE FROM vision_verification")
+            if settings is not None:
+                db.execute("INSERT INTO vision_verification VALUES (1,?)", (self.connection(settings),))
 
     def update_turn(self, generation_id, text, status="running"):
         with self.connect() as db:
@@ -132,5 +190,7 @@ class Store:
         # Explicit field selection keeps API keys out of SQLite even for SettingsInput.
         value = {key: getattr(settings, key) for key in ModelSettings.model_fields}
         with self.connect() as db:
+            if self.connection(self.settings()) != self.connection(settings):
+                db.execute("DELETE FROM vision_verification")
             db.execute("INSERT INTO settings VALUES (1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value",
                        (json.dumps(value),))

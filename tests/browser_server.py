@@ -1,17 +1,27 @@
 """Deterministic model used only by browser tests; production always uses LiteLLM."""
 import asyncio
 import os
+import importlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from backend.app import create_app
 from backend.actions import ACTION_INSTRUCTIONS
 from backend.credentials import Credentials
+from backend.ink import vision_challenge
+
+# Deterministic stand-in for image recognition; never used by the production provider.
+importlib.import_module('backend.app').vision_challenge = lambda: vision_challenge('ABCDEF12')
 
 
 class BrowserProvider:
     async def stream(self, settings, messages, api_key):
         current = messages[-1]["content"]
+        if isinstance(current, list):
+            current = current[0]["text"]
+            if current.startswith('Read the eight-character code'):
+                yield 'ABCDEF12'
+                return
         action = next((name for name, instruction in ACTION_INSTRUCTIONS.items() if current.startswith(instruction)), None)
         if action:
             current = current.split("<notebook-passage>\n", 1)[1].rsplit("\n</notebook-passage>", 1)[0]
@@ -36,10 +46,12 @@ class BrowserProvider:
                 "check": "This is accurate, with one qualification: the map must be linear.",
                 "test_me": "How would doubling the input change the output, and why?",
             }[action]
-        if current == "my reasoning" and any(ACTION_INSTRUCTIONS["test_me"] in message["content"] for message in messages[:-1]):
+        if current == "my reasoning" and any(ACTION_INSTRUCTIONS["test_me"] in str(message["content"]) for message in messages[:-1]):
             answer = "Your reasoning uses linearity: doubling the input doubles the output."
         if current == "recall":
-            answer = "I remember: " + messages[1]["content"]
+            answer = "I remember: " + str(messages[1]["content"])
+        if current == 'recall-image':
+            answer = 'The handwritten image is still in context.' if any(isinstance(message['content'], list) for message in messages[:-1]) else 'No image in context.'
         for word in answer.split(" "):
             yield word + " "
             await asyncio.sleep(3 if current == "slow" else 0.35 if current == "focus-check" else 0.01)

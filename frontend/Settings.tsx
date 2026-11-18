@@ -8,17 +8,27 @@ export function Settings({ initial, onClose, onSave }: { initial: ModelSettings;
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => { dialog.current?.showModal() }, [])
 
-  async function save(test = false) {
+  async function save(test: false | 'connection' | 'vision' = false) {
     setBusy(true); setError(''); setNotice('')
+    let saved: ModelSettings | undefined
     try {
       const result = await api<ModelSettings>('/settings', 'PUT', {
         ...value, api_key: key || null, remember_key: remember, clear_key: clear,
       })
+      saved = result
       setValue(result); setKey(''); setClear(false); onSave(result)
       const message = result.key_source === 'session' ? 'Saved. The API key is held only until the backend restarts.' : 'Settings saved.'
       setNotice(test ? 'Settings saved. Waiting for the model…' : message)
-      if (test) { await api('/settings/test', 'POST'); setNotice(`${message} Model connection works.`) }
-    } catch (err) { setError(errorMessage(err)) }
+      if (test === 'connection') { await api('/settings/test', 'POST'); setNotice(`${message} Model connection works.`) }
+      if (test === 'vision') {
+        const verified = await api<ModelSettings>('/settings/test-vision', 'POST')
+        setValue(verified); onSave(verified)
+        setNotice('Image support verified. You can now share handwritten pages and selections. This checks image reading, not handwriting accuracy.')
+      }
+    } catch (err) {
+      setError(errorMessage(err)); setNotice('')
+      if (test === 'vision' && saved) { setValue({ ...saved, vision_verified: false }); onSave({ ...saved, vision_verified: false }) }
+    }
     finally { setBusy(false) }
   }
 
@@ -33,7 +43,7 @@ export function Settings({ initial, onClose, onSave }: { initial: ModelSettings;
           setKey(''); setClear(false)
         }}><option value="local">Local model</option><option value="cloud">Hosted provider · bring your own key</option></select></label>
         {value.mode === 'cloud' && <>
-          <p className="notice">Messages, recent hidden history, and notebook text you share through Explore, Check, or Test Me will be sent to the selected provider. These actions share the selected passage, or the whole notebook when nothing is selected. Provider usage may incur charges.</p>
+          <p className="notice">Messages, recent hidden history, and notebook text or ink snapshots you share will be sent to the selected provider. Ink actions share the selected area or current page. Provider usage may incur charges.</p>
           <label>Provider<select value={value.provider} onChange={event => { update('provider', event.target.value as ModelSettings['provider']); setKey(''); setClear(false) }}>
             <option value="openai">OpenAI / OpenAI-compatible</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option>
           </select></label>
@@ -46,6 +56,7 @@ export function Settings({ initial, onClose, onSave }: { initial: ModelSettings;
         </div>
         <p className="field-help">Match the context window to your model server’s configuration. Older turns are kept on the host, but only recent turns that fit are sent.</p>
         <p className="field-help">Leave maximum response tokens blank to let the model finish naturally within its own limits.</p>
+        <p className="field-help">{value.vision_verified ? 'Image support verified for the saved connection.' : 'Handwriting actions require an image-capable model.'} Use the image check below to test the saved model with a small generated image. Your notes are not used in this check.</p>
         <label>API key {value.mode === 'local' && '(optional)'}<input type="password" autoComplete="off" value={key} placeholder="Enter to replace the current key" onChange={event => { setKey(event.target.value); setClear(false) }} /></label>
         <p className="field-help">Current key source: {value.key_source}. Keys are never returned to the browser.</p>
         <label className="check"><input type="checkbox" checked={remember} disabled={!value.keyring_available} onChange={event => setRemember(event.target.checked)} />Remember in the host’s OS credential store</label>
@@ -55,7 +66,7 @@ export function Settings({ initial, onClose, onSave }: { initial: ModelSettings;
       </fieldset>
       {notice && <p className="notice" role="status">{notice}</p>}
       {error && <p className="notice error" role="alert">{error}</p>}
-      <div className="dialog-actions"><button type="button" disabled={busy} onClick={() => void save(true)}>Save & test connection</button><button className="primary" disabled={busy} type="submit">{busy ? 'Working…' : 'Save settings'}</button></div>
+      <div className="dialog-actions"><button type="button" disabled={busy} onClick={() => void save('connection')}>Save & test connection</button><button type="button" disabled={busy} onClick={() => void save('vision')}>Save & verify images</button><button className="primary" disabled={busy} type="submit">{busy ? 'Working…' : 'Save settings'}</button></div>
     </form>
   </dialog>
 }

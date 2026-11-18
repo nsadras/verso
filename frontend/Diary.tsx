@@ -8,6 +8,7 @@ export type DiaryHandle = {
 }
 
 type DiaryProps = {
+  image?: string
   page: number
   input: string
   question: string
@@ -25,7 +26,7 @@ type DiaryProps = {
 }
 
 export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
-  page, input, question, answer, action, running, disabled, error, result, omitted, onInput, onSend, onStop, onRetryAction,
+  page, input, question, answer, action, image, running, disabled, error, result, omitted, onInput, onSend, onStop, onRetryAction,
 }, ref) {
   const surface = useRef<HTMLDivElement>(null)
   const paper = useRef<HTMLDivElement>(null)
@@ -207,6 +208,7 @@ export const Diary = forwardRef<DiaryHandle, DiaryProps>(function Diary({
             <p className="diary-action"><strong>{NOTEBOOK_ACTIONS[action]}</strong></p>
             <blockquote className="diary-user diary-quotation">{question}</blockquote>
           </> : <p className="diary-user">{question}</p>}
+          {image && <img className="diary-snapshot" src={image} alt={question} onLoad={updateScrollHint} />}
           <div className="markdown diary-response" aria-busy={running}>
             <Markdown>{answer}</Markdown>
           </div>

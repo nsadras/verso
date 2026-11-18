@@ -54,7 +54,7 @@ Validation: the production build, 28 Python checks, and 28 desktop/mobile browse
 
 ## Still outside the prototype
 
-Handwriting, automatic summaries, offline synchronization, alternate writing modes, and conversation retrieval remain experiments from the [PRD](prd.md). There is no agent framework, vector database, cloud storage service, or automatic AI notebook editing. The current aim is to learn from a small, usable writing experience before adding those systems.
+Automatic summaries, full offline operation, mixed text/ink layouts, and conversation retrieval remain experiments from the [PRD](prd.md). There is no agent framework, vector database, cloud storage service, or automatic AI notebook editing. The current aim is to learn from a small, usable writing experience before adding those systems.
 
 ## 2026-11-12 — Contextual notebook actions
 
@@ -73,3 +73,22 @@ Notebook typography now uses the app's sans-serif family for writing, preview te
 ## 2026-11-13 — Action names in the conversation
 
 Contextual exchanges now open with the action name in bold serif text, followed by the notebook passage as a lightly indented quotation. This replaces the small metadata-style label and makes the request easier to recognize. The formatting survives refreshes; ordinary follow-up messages retain the usual diary styling.
+
+
+## 2026-11-13 — Handwritten notebooks
+
+Text and Ink are separate views within each topic. Ink adds pressure-sensitive pen strokes, whole-stroke erasing, undo/redo, portrait pages, touch scrolling through Move, and rectangular selection. Active ink is drawn directly on canvas; the existing text notebook and conversation remain available.
+
+Editable strokes persist in SQLite schema v3. Completed edits are first queued to IndexedDB on the tablet, with page-level writes, revision checks, and retryable mutation IDs for lost acknowledgements. Conflicting devices retain both versions until the user chooses. Local storage and host save status are distinguished; this is recovery through brief outages, not full offline operation.
+
+The contextual actions can now share an immutable PNG snapshot of the selected area or current page. Images survive conversation reloads and participate in bounded follow-up context. Model settings include an image-reading check based on a random code that appears only inside a generated image. A live check passed with the local `gemma4:12b`; its initial 64-token allowance was insufficient, so image verification now allows 1,024 output tokens for thinking models. Tablet pen feel and recognition of real handwriting still require a Galaxy Tab trial.
+
+New dependencies are perfect-freehand for pressure-sensitive outlines and Pillow, managed with uv, for image validation and generated verification images. Automated checks cover migration, pen input, erasing, undo/redo, recovery, lost acknowledgements, conflicts, concurrent edits, resize/streaming behavior, and image follow-ups. No native wrapper, editor framework, OCR service, retrieval system, or cloud fallback was introduced.
+
+Validation: the production build, 49 backend tests, and 60 desktop/mobile browser tests pass. Targeted ink and image checks also pass after the final page-storage and snapshot-sizing refinements.
+
+## 2026-11-18 — Galaxy Tab trial and startup logging
+
+The user confirmed that pressure-sensitive drawing feels good on the Galaxy Tab. The local model successfully read a handwritten Euler identity and a handwritten question about raising a real number to an imaginary power. Tablet access uses Windows Tailscale Serve forwarding to Verso in WSL, with the HTTPS origin explicitly allowed by the backend.
+
+The launcher now disables colored server logs to avoid an interaction between LiteLLM's log redaction and Uvicorn's formatting that printed literal URL placeholders. Seven focused launcher/provider tests pass. Continuous canvas navigation, notebook zoom, and moving selected handwriting are still design discussions; this version retains separate ink pages.
