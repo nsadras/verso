@@ -92,3 +92,15 @@ Validation: the production build, 49 backend tests, and 60 desktop/mobile browse
 The user confirmed that pressure-sensitive drawing feels good on the Galaxy Tab. The local model successfully read a handwritten Euler identity and a handwritten question about raising a real number to an imaginary power. Tablet access uses Windows Tailscale Serve forwarding to Verso in WSL, with the HTTPS origin explicitly allowed by the backend.
 
 The launcher now disables colored server logs to avoid an interaction between LiteLLM's log redaction and Uvicorn's formatting that printed literal URL placeholders. Seven focused launcher/provider tests pass. Continuous canvas navigation, notebook zoom, and moving selected handwriting are still design discussions; this version retains separate ink pages.
+
+## 2026-11-18 — Continuous handwriting and navigation
+
+Ink now uses one continuous surface with room below and beside existing notes. Two fingers pan and pinch between 25% and 400%, with the writing anchored between the fingers. Move supports one-finger or mouse dragging; wheel and keyboard navigation are also available. A small footer control returns to the most recent writing at the normal scale, and the view is remembered for each topic in this browser. Pen input continues to use pressure and coalesced samples; touch navigation is ignored while writing.
+
+Two viewport-sized canvas layers draw only visible strokes, with cached outlines and bounds. Writing stays in stable world coordinates. New strokes are grouped into bounded storage sections automatically, and erasing across sections is one undoable edit. Existing portrait pages are stacked in order when first opened. Their migration uses the existing IndexedDB recovery queue, revision checks, and mutation IDs, including older pending requests and newer unsaved edits. The database remains schema v3 and no dependency was added.
+
+Contextual actions share the selected rectangle or the visible writing. A snapshot that would shrink a large area into illegible handwriting asks for a closer view or smaller selection. Previously shared images remain immutable. The README, hosting/development guide, and local planning roadmap describe the new behavior. Moving handwriting remains the next stage, with the agreed behavior of leaving empty space behind.
+
+Browser testing caught a layout change discarding a stroke in progress; resizing now preserves that stroke. Automated checks cover actual browser pinch input, pen coordinates after navigation and resizing, view restoration, legacy draft migration with both unsent and acknowledged requests, cross-section undo/redo, snapshot cropping, recovery, and conflicts. The new gesture and palm feel still needs a Galaxy Tab trial.
+
+Validation: the production build, 51 backend tests, and 70 desktop/mobile browser tests pass. The strengthened storage-capacity check also passes on both browser configurations: writing continues into another section while a reply streams, without rewriting earlier ink, and saved coordinates remain accurate after resizing.

@@ -2,10 +2,15 @@ import { getStroke } from 'perfect-freehand'
 
 export type Point = [number, number, number]
 export type Stroke = { id: string; points: Point[]; size: number }
-export type InkPageData = { id: string; width: 1000; height: 1414; strokes: Stroke[]; revision: number; mutation_id: string }
+// The page API now stores bounded sections of a continuous canvas. Old pages
+// without `space` are upgraded in order when their notebook is first opened.
+export type InkPageData = { id: string; width: 1000; height: 1414; space?: 'page' | 'canvas'; strokes: Stroke[]; revision: number; mutation_id: string }
 export type Rect = { x: number; y: number; width: number; height: number }
+export type Camera = { x: number; y: number; zoom: number; writing?: [number, number] }
+export type InkView = Camera & { width: number; height: number }
 export type InkTool = 'pen' | 'erase' | 'select' | 'move'
 export const PAGE_WIDTH = 1000, PAGE_HEIGHT = 1414
+export const WORLD_LIMIT = 1_000_000, MIN_ZOOM = .25, MAX_ZOOM = 4
 export function inkId() {
   if (crypto.randomUUID) return crypto.randomUUID()
   // Basic writing also works on private HTTP; HTTPS enables richer pen events/PWA support.
@@ -15,19 +20,62 @@ export function inkId() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 export function newInkPage(): InkPageData {
-  return { id: inkId(), width: PAGE_WIDTH, height: PAGE_HEIGHT, strokes: [], revision: 0, mutation_id: inkId() }
+  return { id: inkId(), width: PAGE_WIDTH, height: PAGE_HEIGHT, space: 'canvas', strokes: [], revision: 0, mutation_id: inkId() }
 }
 
+const outlines = new WeakMap<Stroke, Path2D>()
 export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke, color = '#f1f1f1', complete = true) {
-  const outline = getStroke(stroke.points, { size: stroke.size, thinning: .55, smoothing: .5, streamline: .25, simulatePressure: false, last: complete })
-  if (!outline.length) return
+  let path = complete ? outlines.get(stroke) : undefined
+  if (!path) {
+    const outline = getStroke(stroke.points, { size: stroke.size, thinning: .55, smoothing: .5, streamline: .25, simulatePressure: false, last: complete })
+    if (!outline.length) return
+    path = new Path2D(); path.moveTo(outline[0][0], outline[0][1])
+    for (let i = 1; i < outline.length; i++) path.lineTo(outline[i][0], outline[i][1])
+    path.closePath()
+    if (complete) outlines.set(stroke, path)
+  }
   ctx.fillStyle = color
-  ctx.beginPath()
-  ctx.moveTo(outline[0][0], outline[0][1])
-  for (let i = 1; i < outline.length; i++) ctx.lineTo(outline[i][0], outline[i][1])
-  ctx.closePath(); ctx.fill()
+  ctx.fill(path)
 }
 
+const bounds = new WeakMap<Stroke, Rect>()
+export function strokeBounds(stroke: Stroke): Rect {
+  const saved = bounds.get(stroke)
+  if (saved) return saved
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity
+  for (const [x, y] of stroke.points) { left = Math.min(left, x); top = Math.min(top, y); right = Math.max(right, x); bottom = Math.max(bottom, y) }
+  const rect = { x: left - stroke.size, y: top - stroke.size, width: right - left + 2 * stroke.size, height: bottom - top + 2 * stroke.size }
+  bounds.set(stroke, rect); return rect
+}
+export function overlaps(a: Rect, b: Rect) {
+  return a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
+}
+const sectionBounds = new WeakMap<Stroke[], Rect>()
+export function visibleStrokes(pages: InkPageData[], area: Rect): Stroke[] {
+  return pages.flatMap(page => {
+    if (!page.strokes.length) return []
+    let rect = sectionBounds.get(page.strokes)
+    if (!rect) {
+      const boxes = page.strokes.map(strokeBounds)
+      const x = Math.min(...boxes.map(b => b.x)), y = Math.min(...boxes.map(b => b.y))
+      rect = { x, y, width: Math.max(...boxes.map(b => b.x + b.width)) - x, height: Math.max(...boxes.map(b => b.y + b.height)) - y }
+      sectionBounds.set(page.strokes, rect)
+    }
+    return overlaps(rect, area) ? page.strokes.filter(stroke => overlaps(strokeBounds(stroke), area)) : []
+  })
+}
+export function readCamera(topic: string): Camera {
+  try {
+    const camera = JSON.parse(localStorage.getItem(`verso.ink-view.${topic}`) ?? 'null')
+    if (camera && [camera.x, camera.y, camera.zoom].every(Number.isFinite)
+      && Math.abs(camera.x) <= WORLD_LIMIT && Math.abs(camera.y) <= WORLD_LIMIT && camera.zoom >= MIN_ZOOM && camera.zoom <= MAX_ZOOM) {
+      const writing = Array.isArray(camera.writing) && camera.writing.length === 2
+        && camera.writing.every((n: number) => Number.isFinite(n) && Math.abs(n) <= WORLD_LIMIT) ? camera.writing : undefined
+      return { x: camera.x, y: camera.y, zoom: camera.zoom, writing }
+    }
+  } catch { /* A view preference must never prevent opening a notebook. */ }
+  return { x: 0, y: 0, zoom: 1 }
+}
 export function rectangle(a: Point, b: Point): Rect {
   return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), width: Math.abs(a[0] - b[0]), height: Math.abs(a[1] - b[1]) }
 }
@@ -47,17 +95,19 @@ export function eraserHits(stroke: Stroke, a: Point, b: Point) {
     return intersects(a, b, c, d) || Math.min(distance(a, c, d), distance(b, c, d), distance(c, a, b), distance(d, a, b)) <= radius
   })
 }
-export function snapshot(page: InkPageData, rect?: Rect): string {
-  const area = rect ?? { x: 0, y: 0, width: page.width, height: page.height }
-  if (area.width < 2 || area.height < 2) throw new Error('Select a larger area of the page.')
+export function snapshot(pages: InkPageData[], area: Rect): string {
+  if (area.width < 2 || area.height < 2) throw new Error('Select a larger area of the notebook.')
+  const strokes = visibleStrokes(pages, area)
+  if (!strokes.length) throw new Error('Bring some handwriting into view, or select an area containing ink.')
   const canvas = document.createElement('canvas')
-  // Keep the short side within two image tiles so a whole page fits the default context budget.
+  // Keep snapshots legible and within the default context budget, even for long notebooks.
   const scale = Math.min(2, 1536 / Math.max(area.width, area.height), 1024 / Math.min(area.width, area.height))
+  if (scale < .7) throw new Error('Zoom in or select a smaller area so the handwriting stays readable.')
   canvas.width = Math.max(1, Math.round(area.width * scale)); canvas.height = Math.max(1, Math.round(area.height * scale))
   const ctx = canvas.getContext('2d')!
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.scale(scale, scale); ctx.translate(-area.x, -area.y)
-  for (const stroke of page.strokes) drawStroke(ctx, stroke, '#111')
+  for (const stroke of strokes) drawStroke(ctx, stroke, '#111')
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data
   let hasInk = false
   for (let i = 0; i < pixels.length; i += 4) if (pixels[i] < 250) { hasInk = true; break }

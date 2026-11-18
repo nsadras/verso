@@ -58,6 +58,30 @@ def test_invalid_ink_never_changes_saved_page(setup_app, change):
     assert client.get(f"/api/topics/{topic}/ink-pages").json() == []
 
 
+def test_canvas_sections_accept_world_coordinates_and_preserve_legacy_retry_and_revision_checks(setup_app):
+    client, provider, path, credentials = setup_app
+    topic = new_topic(client)
+    page_id = str(uuid4())
+    url = f"/api/topics/{topic}/ink-pages/{page_id}"
+    legacy = page()
+    assert client.put(url, json=legacy).json() == {"revision": 1}
+    # A pre-update request body can still retry after a restart.
+    with TestClient(create_app(path, provider, credentials), base_url="http://localhost:8000") as restarted:
+        assert restarted.put(url, json=legacy).json() == {"revision": 1}
+        canvas = {**page(revision=1), "space": "canvas"}
+        canvas["strokes"][0]["points"] = [[-2000, 8000, .4], [3000, 100_000, .8]]
+        assert restarted.put(url, json=canvas).json() == {"revision": 2}
+        assert restarted.put(url, json=canvas).json() == {"revision": 2}
+        assert restarted.put(url, json=legacy).status_code == 409
+        saved = restarted.get(f"/api/topics/{topic}/ink-pages").json()[0]
+        assert saved == {**canvas, "id": page_id, "revision": 2}
+        for invalid in (-1_000_001, 1_000_001):
+            invalid_doc = {**canvas, "revision": 2, "mutation_id": str(uuid4()),
+                           "strokes": [{"id": str(uuid4()), "points": [[invalid, 0, .5]]}]}
+            assert restarted.put(url, json=invalid_doc).status_code == 422
+        assert restarted.get(f"/api/topics/{topic}/ink-pages").json()[0] == saved
+
+
 def test_images_require_verified_model_persist_and_provide_followup_context(setup_app):
     client, provider, path, credentials = setup_app
     topic = new_topic(client)

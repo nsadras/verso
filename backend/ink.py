@@ -7,9 +7,9 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from PIL import Image, ImageDraw, ImageFont
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
-Coordinate = Annotated[float, Field(ge=0, le=1414, allow_inf_nan=False)]
+Coordinate = Annotated[float, Field(ge=-1_000_000, le=1_000_000, allow_inf_nan=False)]
 Pressure = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 
 
@@ -18,25 +18,26 @@ class Stroke(BaseModel):
     points: list[tuple[Coordinate, Coordinate, Pressure]] = Field(min_length=1, max_length=10_000)
     size: float = Field(default=4, ge=1, le=20, allow_inf_nan=False)
 
-    @field_validator("points")
-    @classmethod
-    def within_page(cls, points):
-        if any(x > 1000 for x, _, _ in points):
-            raise ValueError("Stroke extends beyond the page.")
-        return points
-
 
 class InkPageInput(BaseModel):
     revision: int = Field(ge=0)
     mutation_id: UUID
     width: Literal[1000] = 1000
     height: Literal[1414] = 1414
+    # Existing pages retain their original validation and retry representation.
+    # Canvas sections use world coordinates; width/height describe storage cells.
+    space: Literal["page", "canvas"] = "page"
     strokes: list[Stroke] = Field(max_length=5000)
 
     @model_validator(mode="after")
     def bounded_page(self):
         if sum(len(stroke.points) for stroke in self.strokes) > 200_000:
-            raise ValueError("This page is full. Continue on a new page.")
+            raise ValueError("This ink section is full.")
+        if self.space == "page" and any(
+            not (0 <= x <= 1000 and 0 <= y <= 1414)
+            for stroke in self.strokes for x, y, _ in stroke.points
+        ):
+            raise ValueError("Stroke extends beyond the page.")
         if len({stroke.id for stroke in self.strokes}) != len(self.strokes):
             raise ValueError("Duplicate stroke identifiers.")
         return self

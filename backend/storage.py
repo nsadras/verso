@@ -142,7 +142,10 @@ class Store:
                 "SELECT * FROM ink_pages WHERE topic_id=? ORDER BY created_at,id", (topic_id,))]
 
     def save_ink_page(self, topic_id, page_id, value):
-        document = json.dumps(value.model_dump(mode="json", exclude={"revision", "mutation_id"}))
+        excluded = {"revision", "mutation_id"}
+        if value.space == "page":
+            excluded.add("space")  # Byte-identical retries of pre-canvas drafts still work.
+        document = json.dumps(value.model_dump(mode="json", exclude=excluded))
         mutation = str(value.mutation_id)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")

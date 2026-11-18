@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiError, errorMessage } from './api'
-import { inkId, newInkPage, type InkPageData, type Stroke } from './ink'
+import { inkId, newInkPage, PAGE_HEIGHT, PAGE_WIDTH, type InkPageData, type Point, type Stroke } from './ink'
 import { readDraft, writeDraft, type DraftPage } from './inkDrafts'
+
+type Change = { id: string; before: Stroke[]; after: Stroke[] }
+function continuous(page: DraftPage, index: number): DraftPage {
+  if (page.space === 'canvas') return page
+  // Upgrade only the current draft. An older in-flight request remains byte-for-
+  // byte retryable, then the converted draft follows using its acknowledged revision.
+  return { ...page, space: 'canvas', dirty: true, mutation_id: inkId(),
+    strokes: page.strokes.map(stroke => ({ ...stroke,
+      points: stroke.points.map(([x, y, pressure]): Point => [x, y + index * PAGE_HEIGHT, pressure]) })) }
+}
 
 export function useInkNotebook(topic: string) {
   const [pages, setPages] = useState<DraftPage[]>([])
@@ -13,7 +23,7 @@ export function useInkNotebook(topic: string) {
   const localQueue = useRef(Promise.resolve(true)), pendingLocal = useRef(0), localSafe = useRef(false)
   const persisted = useRef(new Map<string, DraftPage>())
   const inFlight = useRef<Promise<void> | null>(null)
-  const undo = useRef(new Map<string, { past: Stroke[][]; future: Stroke[][] }>())
+  const undo = useRef<{ past: Change[][]; future: Change[][] }>({ past: [], future: [] })
   const publish = () => { if (alive.current) setPages([...records.current]) }
   const replace = (id: string, change: (page: DraftPage) => DraftPage) => {
     records.current = records.current.map(page => page.id === id ? change(page) : page)
@@ -51,7 +61,7 @@ export function useInkNotebook(topic: string) {
           const page = records.current.find(item => item.dirty && !item.conflict)
           if (!page) break
           const pending = page.pending ?? { id: page.id, width: page.width, height: page.height,
-            strokes: page.strokes, revision: page.revision, mutation_id: page.mutation_id }
+            space: page.space, strokes: page.strokes, revision: page.revision, mutation_id: page.mutation_id }
           replace(page.id, item => ({ ...item, pending }))
           await persist()
           try {
@@ -104,6 +114,7 @@ export function useInkNotebook(topic: string) {
         records.current = local
       }
       if (!records.current.length) records.current = [{ ...newInkPage(), dirty: true }]
+      records.current = records.current.map(continuous)
       ready.current = true; setLoaded(true); publish()
       await persist(); void sync()
     } finally { loading.current = false }
@@ -130,32 +141,43 @@ export function useInkNotebook(topic: string) {
     return () => clearTimeout(timer)
   }, [edited, loaded])
 
-  function history(id: string) {
-    if (!undo.current.has(id)) undo.current.set(id, { past: [], future: [] })
-    return undo.current.get(id)!
-  }
-  function edit(id: string, strokes: Stroke[], remember = true) {
-    const page = records.current.find(item => item.id === id)!
+  function edit(changes: Change[], remember = true) {
+    if (!changes.length) return
     if (remember) {
-      const stack = history(id)
-      stack.past.push(page.strokes); stack.past = stack.past.slice(-50); stack.future = []
+      undo.current.past.push(changes); undo.current.past = undo.current.past.slice(-50); undo.current.future = []
     }
-    replace(id, item => ({ ...item, strokes, dirty: true, mutation_id: inkId() }))
+    const changed = new Map(changes.map(change => [change.id, change.after]))
+    records.current = records.current.map(page => changed.has(page.id)
+      ? { ...page, strokes: changed.get(page.id)!, dirty: true, mutation_id: inkId() } : page)
+    publish()
     setEdited(value => value + 1)
     void persist()
   }
-  function step(id: string, redo: boolean) {
-    const page = records.current.find(item => item.id === id)!, stack = history(id)
-    const strokes = (redo ? stack.future : stack.past).pop()
-    if (!strokes) return
-    ;(redo ? stack.past : stack.future).push(page.strokes)
-    edit(id, strokes, false)
+  function step(redo: boolean) {
+    const changes = (redo ? undo.current.future : undo.current.past).pop()
+    if (!changes) return
+    ;(redo ? undo.current.past : undo.current.future).push(changes)
+    edit(changes.map(change => ({ ...change, after: redo ? change.after : change.before })), false)
   }
-  function add() {
-    const page = { ...newInkPage(), dirty: true }
-    records.current = [...records.current, page]; publish(); void persist()
-    setEdited(value => value + 1)
-    return page.id
+  function addStroke(stroke: Stroke) {
+    const cell = ([x, y]: Point) => `${Math.floor(x / PAGE_WIDTH)},${Math.floor(y / PAGE_HEIGHT)}`
+    const destination = cell(stroke.points[0])
+    // Sections bound routine saves; strokes can cross section boundaries intact.
+    let page = records.current.find(item => !item.conflict && item.strokes.length < 500
+      && (!item.strokes.length || cell(item.strokes[0].points[0]) === destination)
+      && item.strokes.reduce((n, s) => n + s.points.length, 0) + stroke.points.length <= 20_000)
+    if (!page) {
+      page = { ...newInkPage(), dirty: true }
+      records.current = [...records.current, page]
+    }
+    edit([{ id: page.id, before: page.strokes, after: [...page.strokes, stroke] }])
+  }
+  function erase(ids: Set<string>) {
+    const changes = records.current.flatMap(page => {
+      const after = page.strokes.filter(stroke => !ids.has(stroke.id))
+      return after.length === page.strokes.length ? [] : [{ id: page.id, before: page.strokes, after }]
+    })
+    edit(changes)
   }
   async function resolve(id: string, keepLocal: boolean) {
     await inFlight.current
@@ -164,8 +186,8 @@ export function useInkNotebook(topic: string) {
       const saved = remote.find(page => page.id === id)
       if (!saved) throw new Error('The saved page is missing. Download your ink before reloading.')
       replace(id, item => keepLocal ? { ...item, revision: saved.revision, pending: undefined, conflict: false, dirty: true, mutation_id: inkId() }
-        : { ...saved, dirty: false })
-      undo.current.delete(id)
+        : continuous({ ...saved, dirty: false }, remote.findIndex(page => page.id === id)))
+      undo.current = { past: [], future: [] }
       await persist(); await sync()
     } catch (error) { if (alive.current) setHostError(errorMessage(error)) }
   }
@@ -174,7 +196,8 @@ export function useInkNotebook(topic: string) {
     return !records.current.some(page => page.dirty) || localSafe.current
   }
   const dirty = pages.some(page => page.dirty)
-  return { pages, loaded, edit, step, history, add, resolve, flush, retry: () => loaded ? sync() : load(),
+  return { pages, loaded, addStroke, erase, step, canUndo: !!undo.current.past.length, canRedo: !!undo.current.future.length,
+    resolve, flush, retry: () => loaded ? sync() : load(),
     error: localError || hostError, localError,
     status: !loaded ? 'Loading…' : localBusy ? 'Saving on tablet…' : localError && dirty ? 'Not saved' : dirty ? 'Saved on tablet' : 'Saved on host' }
 }
