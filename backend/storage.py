@@ -1,4 +1,5 @@
 import json
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -21,7 +22,7 @@ class Store:
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 3:
+            if version > 4:
                 raise RuntimeError("Database was created by a newer application.")
             if version == 0:
                 db.executescript("""
@@ -60,6 +61,14 @@ class Store:
                     PRIMARY KEY(topic_id,id))""")
                 db.execute("CREATE TABLE vision_verification (id INTEGER PRIMARY KEY CHECK(id=1), connection TEXT NOT NULL)")
                 db.execute("PRAGMA user_version=3")
+            if version < 4:
+                if not db.in_transaction:
+                    db.execute("BEGIN")
+                db.execute("""CREATE TABLE notebook_appends (
+                    topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+                    id TEXT NOT NULL, content_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+                    PRIMARY KEY(topic_id,id))""")
+                db.execute("PRAGMA user_version=4")
             db.execute("UPDATE turns SET status='interrupted' WHERE status='running'")
 
     @contextmanager
@@ -107,6 +116,31 @@ class Store:
                 (markdown, now(), topic_id, revision),
             ).rowcount
             return revision + 1 if changed else None
+
+    def append_conversion(self, topic_id, conversion_id, markdown, scope):
+        checksum = hashlib.sha256((scope + "\0" + markdown).encode("utf-8")).hexdigest()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            topic = db.execute("SELECT markdown,revision FROM topics WHERE id=?", (topic_id,)).fetchone()
+            if not topic:
+                return None
+            receipt = db.execute("SELECT * FROM notebook_appends WHERE topic_id=? AND id=?", (topic_id, conversion_id)).fetchone()
+            if receipt and receipt["content_hash"] != checksum:
+                raise ValueError("This conversion identifier was already used for different content.")
+            timestamp = receipt["created_at"] if receipt else now()
+            heading = f"Converted handwriting · {timestamp[:16].replace('T', ' ')} UTC"
+            text, revision = topic["markdown"], topic["revision"]
+            if not receipt:
+                block = (f"<!-- verso:handwriting:{conversion_id}:begin -->\n\n"
+                         f"## {heading}\n\n*Source: {scope}.*\n\n{markdown}\n\n"
+                         f"<!-- verso:handwriting:{conversion_id}:end -->\n\n---\n")
+                text += ("\n\n" if text else "") + "---\n\n" + block
+                if len(text) > 2_000_000:
+                    raise OverflowError("The text notebook is full. Download the conversion before making room.")
+                revision += 1
+                db.execute("UPDATE topics SET markdown=?,revision=?,updated_at=? WHERE id=?", (text, revision, timestamp, topic_id))
+                db.execute("INSERT INTO notebook_appends VALUES (?,?,?,?)", (topic_id, conversion_id, checksum, timestamp))
+            return {"markdown": text, "revision": revision, "heading": heading, "appended": receipt is None}
 
     def history(self, topic_id):
         with self.connect() as db:

@@ -1,5 +1,7 @@
 export type Topic = { id: string; title: string; created_at: string; updated_at: string }
 export type NotebookData = { markdown: string; revision: number }
+export type ConversionDraft = { id: string; markdown: string; scope: 'notebook' | 'selection' }
+export type ConversionAppend = NotebookData & { heading: string; appended: boolean }
 export const NOTEBOOK_ACTIONS = { explore: 'Explore', check: 'Check', test_me: 'Test Me' } as const
 export type NotebookAction = keyof typeof NOTEBOOK_ACTIONS
 export type LatestTurn = {
@@ -23,6 +25,7 @@ export type Settings = {
 export type StreamEvent =
   | { type: 'start'; generation_id: string; omitted_turns: number }
   | { type: 'delta'; text: string }
+  | { type: 'transcription'; markdown: string }
   | { type: 'error'; message: string }
   | { type: 'done'; status: string }
 
@@ -52,6 +55,24 @@ export async function streamMessage(topic: string, content: string, signal: Abor
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content, action, image }), signal,
   }))
+  await readEvents(response, onEvent)
+}
+
+export async function transcribeInk(topic: string, image: string, signal: AbortSignal): Promise<string> {
+  const response = await checked(await fetch(`/api/topics/${topic}/transcribe`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image }), signal,
+  }))
+  let markdown = '', status = '', error = ''
+  await readEvents(response, event => {
+    if (event.type === 'transcription') markdown = event.markdown
+    if (event.type === 'error') error = event.message
+    if (event.type === 'done') status = event.status
+  })
+  if (status !== 'complete' || !markdown.trim()) throw new Error(error || 'The conversion did not finish. Nothing was appended.')
+  return markdown
+}
+
+async function readEvents(response: Response, onEvent: (event: StreamEvent) => void) {
   if (!response.body) throw new Error('Streaming is unavailable in this browser.')
   const reader = response.body.getReader()
   const decoder = new TextDecoder()

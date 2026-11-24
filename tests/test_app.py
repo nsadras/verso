@@ -433,6 +433,7 @@ def test_v1_database_migration_preserves_notes_settings_and_turns(tmp_path):
         db.execute("ALTER TABLE turns DROP COLUMN image")
         db.execute("DROP TABLE ink_pages")
         db.execute("DROP TABLE vision_verification")
+        db.execute("DROP TABLE notebook_appends")
         db.execute("PRAGMA user_version=1")
     migrated = Store(path)
     assert migrated.topic(topic)["markdown"] == "My original notes"
@@ -446,4 +447,4 @@ def test_v1_database_migration_preserves_notes_settings_and_turns(tmp_path):
     reopened = Store(path)
     assert reopened.latest_turn(topic)["action"] == "check"
     with reopened.connect() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 4

@@ -95,10 +95,11 @@ export function eraserHits(stroke: Stroke, a: Point, b: Point) {
     return intersects(a, b, c, d) || Math.min(distance(a, c, d), distance(b, c, d), distance(c, a, b), distance(d, a, b)) <= radius
   })
 }
+export class EmptyInkError extends Error {}
 export function snapshot(pages: InkPageData[], area: Rect): string {
   if (area.width < 2 || area.height < 2) throw new Error('Select a larger area of the notebook.')
   const strokes = visibleStrokes(pages, area)
-  if (!strokes.length) throw new Error('Bring some handwriting into view, or select an area containing ink.')
+  if (!strokes.length) throw new EmptyInkError('Bring some handwriting into view, or select an area containing ink.')
   const canvas = document.createElement('canvas')
   // Keep snapshots legible and within the default context budget, even for long notebooks.
   const scale = Math.min(2, 1536 / Math.max(area.width, area.height), 1024 / Math.min(area.width, area.height))
@@ -111,7 +112,7 @@ export function snapshot(pages: InkPageData[], area: Rect): string {
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data
   let hasInk = false
   for (let i = 0; i < pixels.length; i += 4) if (pixels[i] < 250) { hasInk = true; break }
-  if (!hasInk) throw new Error('Select an area containing some handwriting.')
+  if (!hasInk) throw new EmptyInkError('Select an area containing some handwriting.')
   const image = canvas.toDataURL('image/png')
   if (image.length > 4_000_000) throw new Error('This snapshot is too large. Select a smaller area.')
   return image

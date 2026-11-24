@@ -14,7 +14,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .conversation import Conversations
 from .config import env
 from .credentials import Credentials
-from .models import MessageInput, ModelSettings, NotebookInput, SettingsInput, TopicInput
+from .models import ConversionAppendInput, MessageInput, ModelSettings, NotebookInput, SettingsInput, TopicInput, TranscriptionInput
 from .provider import LiteLLMProvider, public_error
 from .storage import Store
 from .ink import InkPageInput, vision_challenge
@@ -129,6 +129,24 @@ def create_app(db_path=None, provider=None, credentials=None):
         filename = re.sub(r"[^a-zA-Z0-9_-]+", "-", topic["title"]).strip("-") or "notebook"
         return Response(topic["markdown"], media_type="text/markdown; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{filename}.md"'})
+
+    @app.post("/api/topics/{topic_id}/notebook/append-conversion")
+    def append_conversion(topic_id: str, value: ConversionAppendInput):
+        try:
+            result = store().append_conversion(topic_id, str(value.id), value.markdown, value.scope)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except OverflowError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if result is None:
+            raise HTTPException(404, "Topic not found.")
+        return result
+
+    @app.post("/api/topics/{topic_id}/transcribe")
+    async def transcribe(topic_id: str, value: TranscriptionInput):
+        generation = await app.state.conversations.start_transcription(topic_id, value.image)
+        return StreamingResponse(app.state.conversations.events(generation), media_type="text/event-stream",
+                                 headers={"X-Accel-Buffering": "no", "Cache-Control": "no-store"})
 
     @app.get("/api/topics/{topic_id}/ink-pages")
     def ink_pages(topic_id: str):

@@ -166,6 +166,7 @@ def test_v2_migration_preserves_text_and_adds_empty_ink(setup_app):
         db.execute('ALTER TABLE turns DROP COLUMN image')
         db.execute('DROP TABLE ink_pages')
         db.execute('DROP TABLE vision_verification')
+        db.execute('DROP TABLE notebook_appends')
         db.execute('PRAGMA user_version=2')
     with TestClient(create_app(path, provider, credentials), base_url='http://localhost:8000') as restarted:
         assert restarted.get(f'/api/topics/{topic}/notebook').json()['markdown'] == 'Existing notes'

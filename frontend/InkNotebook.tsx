@@ -1,16 +1,19 @@
-import { forwardRef, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { NOTEBOOK_ACTIONS, type NotebookAction } from './api'
 import { InkCanvas, type InkCanvasHandle } from './InkCanvas'
-import { readCamera, snapshot, visibleStrokes, type InkView, type InkTool, type Rect } from './ink'
+import { readCamera, snapshot, visibleStrokes, type InkPageData, type InkView, type InkTool, type Rect } from './ink'
 import { useInkNotebook } from './useInkNotebook'
 import type { NotebookHandle } from './Notebook'
 
 type Props = {
   topic: string; hidden: boolean; viewSwitch: ReactNode; disabled: boolean; actionsDisabled: boolean
   visionVerified: boolean; onSettings: () => void
+  conversionNotice: ReactNode; conversionDisabled: boolean
+  onConvert: (pages: InkPageData[], selection: Rect | null) => void
+  onInteraction: (active: boolean) => void
   onAction: (text: string, action: NotebookAction, image?: string) => void
 }
-export const InkNotebook = forwardRef<NotebookHandle, Props>(function InkNotebook({ topic, hidden, viewSwitch, disabled, actionsDisabled, visionVerified, onSettings, onAction }, ref) {
+export const InkNotebook = forwardRef<NotebookHandle, Props>(function InkNotebook({ topic, hidden, viewSwitch, disabled, actionsDisabled, visionVerified, onSettings, onAction, conversionNotice, conversionDisabled, onConvert, onInteraction }, ref) {
   const notebook = useInkNotebook(topic)
   const [tool, setTool] = useState<InkTool>('pen')
   const [selection, setSelection] = useState<Rect | null>(null)
@@ -18,6 +21,10 @@ export const InkNotebook = forwardRef<NotebookHandle, Props>(function InkNoteboo
   const [view, setView] = useState<InkView>({ ...initialView, width: 0, height: 0 })
   const [error, setError] = useState(''), [resolving, setResolving] = useState(false)
   const surface = useRef<InkCanvasHandle>(null)
+  const pointers = useRef(new Set<number>())
+  function endInteraction(event: PointerEvent) {
+    if (pointers.current.delete(event.pointerId)) onInteraction(pointers.current.size > 0)
+  }
   const hasInk = visibleStrokes(notebook.pages, selection ?? view).length > 0
   useImperativeHandle(ref, () => ({ flush: notebook.flush }))
   function run(action: NotebookAction) {
@@ -39,6 +46,10 @@ export const InkNotebook = forwardRef<NotebookHandle, Props>(function InkNoteboo
     try { await notebook.resolve(conflict.id, keep) } finally { setResolving(false) }
   }
   return <section className="notebook panel ink-notebook" aria-label="Persistent ink notebook" hidden={hidden}
+    onPointerDownCapture={event => {
+      if ((event.target as Element).matches('.ink-live')) { pointers.current.add(event.pointerId); onInteraction(true) }
+    }}
+    onPointerUp={endInteraction} onPointerCancel={endInteraction} onLostPointerCapture={endInteraction}
     onKeyDown={event => {
       if (event.key === 'Escape') { setSelection(null); setTool('pen') }
       if (!disabled && !resolving && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
@@ -51,8 +62,13 @@ export const InkNotebook = forwardRef<NotebookHandle, Props>(function InkNoteboo
         {(Object.entries(NOTEBOOK_ACTIONS) as [NotebookAction, string][]).map(([action, label]) =>
           <button key={action} className="notebook-text-action" disabled={actionsDisabled || !visionVerified || !hasInk}
             title={`${label}: ${selection ? 'selected area' : 'visible handwriting'}`} aria-describedby="ink-action-scope" onClick={() => run(action)}>{label}</button>)}
+        <button className="notebook-text-action" aria-label="Convert handwriting to Markdown"
+          title={selection ? 'Convert selected handwriting and append to Text' : 'Convert all handwriting, including offscreen notes, and append to Text'}
+          disabled={actionsDisabled || conversionDisabled || !visionVerified || !notebook.loaded || (selection ? !hasInk : !notebook.pages.some(page => page.strokes.length))}
+          onClick={() => onConvert(notebook.pages, selection)}>{selection ? 'Convert' : 'Convert all'}</button>
       </div>
     </div>
+    {conversionNotice}
     <div className="ink-tools" role="toolbar" aria-label="Ink tools">
       {(['pen', 'erase', 'select', 'move'] as InkTool[]).map(item => <button key={item} aria-pressed={tool === item}
         disabled={disabled || !notebook.loaded || resolving} onClick={() => { setTool(item); if (item !== 'select') setSelection(null) }}>

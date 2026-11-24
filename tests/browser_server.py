@@ -9,6 +9,8 @@ from backend.app import create_app
 from backend.actions import ACTION_INSTRUCTIONS
 from backend.credentials import Credentials
 from backend.ink import vision_challenge
+from backend.transcription import TRANSCRIPTION_PROMPT
+from backend.provider import ResponseLimitReached
 
 # Deterministic stand-in for image recognition; never used by the production provider.
 importlib.import_module('backend.app').vision_challenge = lambda: vision_challenge('ABCDEF12')
@@ -22,6 +24,17 @@ class BrowserProvider:
             if current.startswith('Read the eight-character code'):
                 yield 'ABCDEF12'
                 return
+        if messages[0]['content'] == TRANSCRIPTION_PROMPT:
+            yield '# Euler’s identity\n\nWhy is $i^2=-1$?\n\n$$\ne^{i\\pi}+1=0\n$$\n'
+            if settings.model.startswith('conversion-slow'):
+                await asyncio.sleep(60)
+            else:
+                await asyncio.sleep(.15)
+            if settings.model.startswith('conversion-fail'):
+                raise RuntimeError('A simulated transcription failure')
+            if settings.model.startswith('conversion-limit'):
+                raise ResponseLimitReached()
+            return
         action = next((name for name, instruction in ACTION_INSTRUCTIONS.items() if current.startswith(instruction)), None)
         if action:
             current = current.split("<notebook-passage>\n", 1)[1].rsplit("\n</notebook-passage>", 1)[0]

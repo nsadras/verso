@@ -362,7 +362,7 @@ for (const acknowledged of [true, false]) test(`legacy pages recover an ${acknow
   // plus newer edits in its IndexedDB recovery draft before this update.
   await page.evaluate(async ({ topic, pending, newer }) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('verso-ink', 2); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error)
+      const request = indexedDB.open('verso-ink'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error)
     })
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('pages', 'readwrite')

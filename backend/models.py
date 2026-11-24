@@ -1,6 +1,7 @@
 import ipaddress
 from typing import Literal
 from urllib.parse import urlparse
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -33,6 +34,28 @@ class MessageInput(BaseModel):
     @classmethod
     def validate_image(cls, value):
         return normalize_image(value) if value is not None else None
+
+
+class TranscriptionInput(BaseModel):
+    image: str = Field(max_length=4_000_000)
+
+    @field_validator("image")
+    @classmethod
+    def validate_image(cls, value):
+        return normalize_image(value)
+
+
+class ConversionAppendInput(BaseModel):
+    id: UUID
+    markdown: str = Field(min_length=1, max_length=500_000)
+    scope: Literal["notebook", "selection"]
+
+    @field_validator("markdown")
+    @classmethod
+    def nonempty(cls, value):
+        if not value.strip():
+            raise ValueError("The transcription is empty.")
+        return value.strip()
 
 
 class ModelSettings(BaseModel):

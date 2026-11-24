@@ -21,8 +21,16 @@ function displayMath() {
   }
 }
 
+// Keep conversion boundaries in editable Markdown without printing internal
+// identifiers in Preview. Do not enable raw HTML or touch examples in code blocks.
+function conversionMarkers() {
+  return (tree: Root) => visit(tree, 'html', node => {
+    if (/^<!-- verso:handwriting:[0-9a-f-]{36}:(begin|end) -->$/.test(node.value.trim())) node.value = ''
+  })
+}
+
 export function Markdown({ children }: { children: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, displayMath]}
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, displayMath, conversionMarkers]}
     rehypePlugins={[[rehypeKatex, { trust: false, errorColor: '#b0b0b0' }]]}
     components={{
       img: ({ alt }) => <span>[Image: {alt}]</span>,

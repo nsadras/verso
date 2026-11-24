@@ -24,6 +24,8 @@ export default function App() {
   const [action, setAction] = useState<NotebookAction | null>(null)
   const [sharedImage, setSharedImage] = useState<string | undefined>()
   const [running, setRunning] = useState(false), [chatError, setChatError] = useState(''), [result, setResult] = useState('')
+  const [converting, setConverting] = useState(false)
+  const busy = running || converting
   const [omitted, setOmitted] = useState(0), [online, setOnline] = useState(navigator.onLine)
   const [view, setView] = useState<WorkspaceView>(() => matchMedia('(max-width: 760px)').matches ? 'chat' : 'split')
   const [renaming, setRenaming] = useState(false), [title, setTitle] = useState('')
@@ -147,7 +149,7 @@ export default function App() {
   }
 
   async function send(content = input, notebookAction?: NotebookAction, image?: string) {
-    if (loading || !topic || !content.trim() || controller.current || navigating) return
+    if (loading || !topic || !content.trim() || controller.current || navigating || converting) return
     const abort = new AbortController()
     controller.current = abort; generation.current = ''
     let submitted = false
@@ -182,24 +184,24 @@ export default function App() {
   }
 
   const sidebarContent = <>
-    <button className="new-chat" disabled={running || navigating || loading || !settings} onClick={() => void newChat()}>+ New chat</button>
+    <button className="new-chat" disabled={busy || navigating || loading || !settings} onClick={() => void newChat()}>+ New chat</button>
     <nav className="topic-list" aria-label="Topics">
       {topics.map(item => <div className={`topic-row${item.id === topic?.id ? ' selected' : ''}`} key={item.id}>
         <button className="topic-name" title={item.title} data-topic-id={item.id}
           aria-current={item.id === topic?.id ? 'page' : undefined}
-          disabled={running || navigating} onClick={() => void switchTopic(item.id)}>{item.title}</button>
+          disabled={busy || navigating} onClick={() => void switchTopic(item.id)}>{item.title}</button>
         {item.id === topic?.id && <div className="topic-actions">
-          <button aria-label="Rename topic" title="Rename topic" disabled={running || navigating}
+          <button aria-label="Rename topic" title="Rename topic" disabled={busy || navigating}
             onClick={() => { setTitle(item.title); setRenaming(true) }}>✎</button>
-          <button aria-label="Delete topic" title="Delete topic" disabled={running || navigating} onClick={() => void deleteTopic()}>×</button>
+          <button aria-label="Delete topic" title="Delete topic" disabled={busy || navigating} onClick={() => void deleteTopic()}>×</button>
         </div>}
       </div>)}
       {renaming && <form className="topic-form" onSubmit={renameTopic}>
         <label>Topic name<input required maxLength={120} value={title} onChange={event => setTitle(event.target.value)} /></label>
-        <div className="button-group"><button className="primary" disabled={navigating || running}>Save</button><button type="button" onClick={() => setRenaming(false)}>Cancel</button></div>
+        <div className="button-group"><button className="primary" disabled={navigating || busy}>Save</button><button type="button" onClick={() => setRenaming(false)}>Cancel</button></div>
       </form>}
     </nav>
-    <button className="settings-button" disabled={!settings || running} onClick={() => { sidebar.current?.close(); setShowSettings(true) }}>
+    <button className="settings-button" disabled={!settings || busy} onClick={() => { sidebar.current?.close(); setShowSettings(true) }}>
       <span className="status-dot" />{settings?.mode === 'cloud' ? 'Hosted model' : 'Local model'}<span aria-hidden="true"> ⚙</span>
     </button>
   </>
@@ -234,12 +236,12 @@ export default function App() {
     {!online && <div className="notice page-notice" role="status">You’re offline. Ink drafts can be saved on this tablet; reconnect to sync or use a model. Keep this page open to retain unsaved text edits.</div>}
     {error && <div className="notice error page-notice" role="alert">{error} {!settings && <button onClick={() => void initialize()}>Reconnect</button>}<button className="dismiss" aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
         <Workspace view={view} conversation={<Diary ref={diary} page={page} input={input} question={question} answer={answer} action={action} image={sharedImage}
-            running={running} disabled={loading || !topic || navigating} error={chatError} result={result} omitted={omitted}
+            running={running} disabled={loading || !topic || navigating || converting} error={chatError} result={result} omitted={omitted}
             onInput={setInput} onSend={() => void send()} onStop={() => void stop()}
             onRetryAction={() => { if (action) void send(question, action, sharedImage) }} />}
           notebook={topic ? <Notebook key={topic.id} ref={notebook} topic={topic} navigating={navigating}
             expanded={view === 'notes'} onToggleExpanded={() => setView(previous => previous === 'notes' ? 'split' : 'notes')}
-            actionsDisabled={loading || running || navigating || showSettings}
+            actionsDisabled={loading || busy || navigating || showSettings} onConversionBusyChange={setConverting}
             visionVerified={settings?.vision_verified ?? false} onSettings={() => setShowSettings(true)}
             onAction={(selected, kind, image) => void send(selected, kind, image)} />
             : <section className="notebook panel" aria-label="Persistent notebook"><div className="panel-heading"><h2>Notebook</h2></div><textarea className="notebook-editor" aria-label="Notebook" disabled placeholder={loading ? 'Loading…' : 'Unable to load notebook.'} /></section>} />

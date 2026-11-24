@@ -1,20 +1,22 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Markdown } from './Markdown'
-import { api, ApiError, downloadMarkdown, errorMessage, type NotebookAction, type NotebookData, type Topic } from './api'
+import { api, ApiError, downloadMarkdown, errorMessage, type ConversionAppend, type ConversionDraft, type NotebookAction, type NotebookData, type Topic } from './api'
 import { NotebookActions } from './NotebookActions'
 
 export type NotebookHandle = { flush: () => Promise<boolean> }
+export type TextNotebookHandle = NotebookHandle & { appendConversion: (draft: ConversionDraft) => Promise<void> }
 
 type NotebookProps = {
   hidden?: boolean
   viewSwitch?: ReactNode
+  conversionNotice?: ReactNode
   topic: Topic
   navigating: boolean
   actionsDisabled: boolean
   onAction: (text: string, action: NotebookAction) => void
 }
 
-export const Notebook = forwardRef<NotebookHandle, NotebookProps>(function Notebook({ topic, navigating, actionsDisabled, onAction, hidden, viewSwitch }, ref) {
+export const Notebook = forwardRef<TextNotebookHandle, NotebookProps>(function Notebook({ topic, navigating, actionsDisabled, onAction, hidden, viewSwitch, conversionNotice }, ref) {
   const [text, setText] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [preview, setPreview] = useState(false)
@@ -22,6 +24,8 @@ export const Notebook = forwardRef<NotebookHandle, NotebookProps>(function Noteb
   const [status, setStatus] = useState('Loading…')
   const [error, setError] = useState('')
   const [conflict, setConflict] = useState(false)
+  const [appending, setAppending] = useState(false), [reveal, setReveal] = useState('')
+  const appendBusy = useRef(false)
   const current = useRef(''), saved = useRef(''), revision = useRef(0)
   const ready = useRef(false), alive = useRef(true)
   const blocked = useRef(false)
@@ -72,7 +76,28 @@ export const Notebook = forwardRef<NotebookHandle, NotebookProps>(function Noteb
     return inFlight.current
   }
 
-  useImperativeHandle(ref, () => ({ flush }))
+  async function appendConversion(draft: ConversionDraft) {
+    if (appendBusy.current) throw new Error('A conversion is already being appended.')
+    appendBusy.current = true; setAppending(true)
+    try {
+      if (!await flush()) throw new Error('Save or resolve your text notebook edits, then retry appending the conversion.')
+      const result = await api<ConversionAppend>(`/topics/${topic.id}/notebook/append-conversion`, 'POST', draft, AbortSignal.timeout(15_000))
+      current.current = saved.current = result.markdown; revision.current = result.revision
+      if (alive.current) {
+        setText(result.markdown); setStatus('Saved on host'); setError('')
+        setPreview(true); setReveal(result.heading)
+      }
+    } finally { appendBusy.current = false; if (alive.current) setAppending(false) }
+  }
+  useImperativeHandle(ref, () => ({ flush, appendConversion }))
+  useLayoutEffect(() => {
+    if (!reveal || hidden || !preview || !rendered.current) return
+    const container = rendered.current
+    const heading = Array.from(container.querySelectorAll('h2')).reverse().find(node => node.textContent === reveal)
+    if (heading) container.scrollTop += heading.getBoundingClientRect().top - container.getBoundingClientRect().top - 16
+    else container.scrollTop = container.scrollHeight
+    setReveal('')
+  }, [reveal, hidden, preview, text])
   useEffect(() => {
     alive.current = true
     void load()
@@ -108,6 +133,7 @@ export const Notebook = forwardRef<NotebookHandle, NotebookProps>(function Noteb
       <button type="button" className="notebook-text-action" disabled={!loaded} aria-pressed={preview}
         title={preview ? 'Edit Markdown' : 'Preview Markdown'} onClick={() => setPreview(!preview)}>{preview ? 'Edit' : 'Preview'}</button>
     </div>
+    {conversionNotice}
     {error && <div className="notice error" role="alert">
       <p>{error}</p>
       {conflict ? <>
@@ -116,9 +142,9 @@ export const Notebook = forwardRef<NotebookHandle, NotebookProps>(function Noteb
       </> : <button onClick={() => { if (loaded) void flush(); else void load() }}>Retry {loaded ? 'save' : 'loading'}</button>}
     </div>}
     {preview ? <div className="markdown notebook-preview" ref={rendered} tabIndex={-1}><Markdown>{text || '*Your notebook is empty.*'}</Markdown></div>
-      : <textarea className="notebook-editor" ref={editor} aria-label="Notebook" spellCheck disabled={!loaded || navigating}
+      : <textarea className="notebook-editor" ref={editor} aria-label="Notebook" spellCheck disabled={!loaded || navigating} readOnly={appending}
           value={text} placeholder="Write your notes…"
-          onChange={event => { current.current = event.target.value; setText(event.target.value); setStatus('Unsaved changes') }} />}
+          onChange={event => { if (!appendBusy.current) { current.current = event.target.value; setText(event.target.value); setStatus('Unsaved changes') } }} />}
     <footer className="notebook-status" aria-label="Notebook status">
       <span className={error ? 'save-error' : ''} role="status">{status === 'Saved on host' ? '✓ ' : ''}{status}</span>
       <span>{words} {words === 1 ? 'word' : 'words'}</span>
