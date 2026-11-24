@@ -10,7 +10,7 @@ export default function OpenGraphImage() {
       <div style={{
         display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
         width: '100%', height: '100%', padding: '72px 80px',
-        background: '#1a1a1a', color: '#f5f5f5',
+        background: '#000000', color: '#f5f5f5',
       }}>
         <div style={{ fontSize: 32 }}>Verso</div>
         <div style={{ display: 'flex', flexDirection: 'column', fontSize: 68, lineHeight: 1.15, letterSpacing: '-2px' }}>

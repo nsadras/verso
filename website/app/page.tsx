@@ -76,7 +76,7 @@ export default function Page() {
             on the machine running the app.
           </p>
           <p>
-            <a href={site.repository + '#get-started'}>Read the installation guide</a>
+            <a href={site.repository + '#get-started'}>Get started on GitHub</a>
           </p>
         </section>
       </div>

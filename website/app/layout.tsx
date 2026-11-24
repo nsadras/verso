@@ -2,8 +2,6 @@ import './global.css'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { GeistSans } from 'geist/font/sans'
-import { Navbar } from './components/nav'
-import Footer from './components/footer'
 import { site } from './site'
 
 export const metadata: Metadata = {
@@ -29,11 +27,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={GeistSans.variable}>
-      <body className="mx-auto max-w-xl px-6 pt-8 antialiased sm:px-0">
+      <body className="mx-auto max-w-xl px-6 py-16 antialiased sm:px-0 sm:py-20">
         <a className="skip-link" href="#main">Skip to content</a>
-        <Navbar />
         <main id="main" tabIndex={-1}>{children}</main>
-        <Footer />
       </body>
     </html>
   )

@@ -41,10 +41,10 @@ Vercel documents selecting a project's root directory in its [monorepo guide](ht
 
 ## Editing
 
-- `app/page.tsx`: introduction, philosophy, capabilities, and installation link.
+- `app/page.tsx`: introduction, philosophy, capabilities, and the single "Get started on GitHub" link to installation instructions.
 - `app/site.ts`: canonical domain, metadata, and repository URL.
-- `app/components/`: navigation and footer.
-- `app/global.css`: the narrow reading layout, typography, and system light/dark themes.
+- `app/layout.tsx`: page spacing and the keyboard-accessible skip link.
+- `app/global.css`: the narrow reading layout, typography, and system light/dark themes, with a black background in dark mode.
 - `public/images/verso-notebook.png`: a screenshot of the real app with an illustrative conversation and notes, captured against a separate temporary database. The original image opens from the page for a closer look.
 - `app/opengraph-image.tsx`: the sharing card. The sitemap, robots file, and canonical URL point to `thinkwithverso.com`.
 
@@ -52,6 +52,6 @@ Geist fonts are served from the installed package, so builds do not fetch fonts 
 
 ## Template attribution
 
-Adapted from Vercel's [Portfolio Blog Starter](https://github.com/vercel/examples/tree/a4b4827297bec79b81ddb2ff22a53089ebe88cd8/solutions/blog), the source of [the requested demo](https://portfolio-blog-starter.vercel.app/). The template's layout, typography, navigation, footer, and metadata structure form the starting point. The sample posts, MDX/RSS utilities, analytics, and syntax-highlighting dependencies are omitted for this single-page site; framework and styling dependencies use current stable releases.
+Adapted from Vercel's [Portfolio Blog Starter](https://github.com/vercel/examples/tree/a4b4827297bec79b81ddb2ff22a53089ebe88cd8/solutions/blog), the source of [the requested demo](https://portfolio-blog-starter.vercel.app/). The template's layout, typography, and metadata structure form the starting point. The navigation, footer links, sample posts, MDX/RSS utilities, analytics, and syntax-highlighting dependencies are omitted for this single-page site; framework and styling dependencies use current stable releases.
 
 The upstream MIT notice is preserved in [LICENSE.template.md](LICENSE.template.md). It applies to the reused template code and is not a new license declaration for the parent Verso application.
