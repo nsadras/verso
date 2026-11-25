@@ -13,11 +13,12 @@ export default function Page() {
         <h1 id="intro-heading" className="mb-6 text-2xl font-semibold tracking-tighter">
           Verso
         </h1>
-        <p className="mb-4 text-lg tracking-tight">A quiet notebook for thinking with AI.</p>
+        <p className="mb-4 text-lg tracking-tight">A constrained LLM interface designed to encourage focus and retention</p>
         <p className="leading-7 text-neutral-600 dark:text-neutral-300">
-          Work through an idea in conversation. Write down what clicks in a
-          notebook beside it. With each new turn, the previous exchange leaves
-          the page. Your notes stay.
+          When everything can be saved and revisited later, it's easy to put off the process of learning and understanding. Verso
+          takes a different approach from traditional LLM interfaces - explore ideas through conversation, but the only information that
+          stays around is what you write down. If you've ever spent hours brainstorming and researching with an LLM, only to realize how 
+          little of it actually stuck, then Verso is for you.
         </p>
       </section>
 
@@ -40,40 +41,12 @@ export default function Page() {
       </figure>
 
       <div className="prose">
-        <section id="the-idea" aria-labelledby="idea-heading" className="mb-10">
-          <h2 id="idea-heading">Keep what you understand.</h2>
-          <p>
-            An explanation is easy to save and easy to forget. Verso asks you
-            to choose what matters, put it in your own words, and build on it.
-          </p>
-          <p>
-            The page stays focused on your latest exchange. Earlier turns can
-            still inform the conversation, while your notebook grows into a
-            record of your own understanding.
-          </p>
-        </section>
-
-        <section aria-labelledby="notebook-heading" className="mb-10">
-          <h2 id="notebook-heading">Make the notebook your own.</h2>
-          <p>
-            Type in Markdown, or write by hand on a tablet. Pan and zoom as
-            your notes grow. Convert handwriting into text, with equations
-            formatted in LaTeX.
-          </p>
-          <p>
-            Select a passage or diagram to explore it, check your reasoning,
-            or ask for a question to test your understanding. Give the notebook
-            the whole screen while you read or watch a lecture, then bring the
-            conversation back when you need it.
-          </p>
-        </section>
-
         <section id="get-started" aria-labelledby="start-heading">
           <h2 id="start-heading">Try Verso.</h2>
           <p>
-            Verso is an early project you run on your own computer. Connect a
-            local model, or choose a hosted provider. Your notebook is saved
-            on the machine running the app.
+            Verso is free, open-source, and self-hosted. Run it completely locally via Ollama, or 
+            connect to a cloud model using your own API key. Use it directly in your browser, or access it from your phone
+            or tablet through Tailscale.           
           </p>
           <p>
             <a href={site.repository + '#get-started'}>Get started on GitHub</a>
